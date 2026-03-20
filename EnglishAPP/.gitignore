@@ -1,0 +1,32 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# Env
+.env
+*.local
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Local runtime artifacts
+*.db
+backend/.pytest_cache/
+backend/*.egg-info/
