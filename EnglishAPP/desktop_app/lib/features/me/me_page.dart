@@ -2,7 +2,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/api_client.dart';
 import '../../core/state/session_controller.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
@@ -45,7 +44,7 @@ class _MePageState extends ConsumerState<MePage> {
     final api = ref.read(apiClientProvider);
     try {
       await api.delete('/users/me', accessToken: session.accessToken, body: {'mode': mode});
-      ref.read(sessionProvider.notifier).clear();
+      await ref.read(sessionProvider.notifier).clear();
       if (!mounted) return;
       context.go('/login');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('账号已${mode == 'soft' ? '软删除' : '硬删除'}')));
@@ -122,8 +121,9 @@ class _MePageState extends ConsumerState<MePage> {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () {
-                          ref.read(sessionProvider.notifier).clear();
+                        onPressed: () async {
+                          await ref.read(sessionProvider.notifier).clear();
+                          if (!context.mounted) return;
                           context.go('/login');
                         },
                         child: const Text('退出本地会话'),
@@ -147,4 +147,3 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
-

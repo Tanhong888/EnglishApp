@@ -42,7 +42,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       );
       final data = (response['data'] as Map).cast<String, dynamic>();
 
-      ref.read(sessionProvider.notifier).setSession(
+      await ref.read(sessionProvider.notifier).setSession(
             accessToken: data['access_token'] as String,
             refreshToken: data['refresh_token'] as String,
             user: (data['user'] as Map).cast<String, dynamic>(),
@@ -113,3 +113,4 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 }
+
