@@ -32,10 +32,10 @@ class RefreshRequest(BaseModel):
 
 def serialize_user(user: User) -> dict:
     return {
-        "id": user.id,
-        "email": user.email,
-        "nickname": user.nickname,
-        "target": user.target,
+        'id': user.id,
+        'email': user.email,
+        'nickname': user.nickname,
+        'target': user.target,
     }
 
 
@@ -64,6 +64,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid_credentials')
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='user_disabled')
 
     access_token = create_access_token(user.id)
     refresh_token, jti, expires_at = create_refresh_token(user.id)
@@ -88,6 +90,10 @@ def refresh_token(payload: RefreshRequest, db: Session = Depends(get_db)) -> dic
     jti = token_payload.get('jti')
     if not jti:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid_refresh_token')
+
+    user = db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='user_not_found')
 
     token_row = db.scalar(select(RefreshToken).where(RefreshToken.token_jti == jti, RefreshToken.user_id == user_id))
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -128,4 +134,3 @@ def logout(payload: RefreshRequest, db: Session = Depends(get_db)) -> dict:
     db.commit()
 
     return success({'revoked': True})
-
