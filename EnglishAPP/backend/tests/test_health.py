@@ -144,3 +144,37 @@ def test_account_hard_delete_flow(client: TestClient) -> None:
 
     me_response = client.get('/api/v1/users/me', headers=headers)
     assert me_response.status_code == 401
+
+def test_sentence_analysis_endpoint(client: TestClient) -> None:
+    response = client.get('/api/v1/articles/1/sentence-analyses')
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['article_id'] == 1
+    assert isinstance(data['items'], list)
+    assert len(data['items']) >= 1
+
+
+def test_quiz_flow_endpoints(client: TestClient) -> None:
+    quiz_response = client.get('/api/v1/articles/1/quiz')
+    assert quiz_response.status_code == 200
+
+    questions = quiz_response.json()['data']['questions']
+    assert len(questions) >= 1
+
+    submit_response = client.post(
+        '/api/v1/quiz/submit',
+        json={
+            'article_id': 1,
+            'answers': [
+                {'question_id': questions[0]['question_id'], 'answer': 'A'},
+            ],
+        },
+    )
+    assert submit_response.status_code == 200
+
+    attempt_id = submit_response.json()['data']['attempt_id']
+    attempt_response = client.get(f'/api/v1/quiz/attempts/{attempt_id}')
+    assert attempt_response.status_code == 200
+    attempt_data = attempt_response.json()['data']
+    assert attempt_data['attempt_id'] == attempt_id
+    assert 'accuracy' in attempt_data
