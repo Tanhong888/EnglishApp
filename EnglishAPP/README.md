@@ -73,8 +73,10 @@ python -m pytest tests -q
 ## 7) 当前已落地内容
 
 - Windows-first 的客户端架构与统一主题骨架（Noto Sans）
+- Windows 客户端已接入真实 API：登录、首页推荐、文章列表/详情、我的统计、收藏、生词本
 - FastAPI 模块化 API（auth/content/vocab/favorite/reading/quiz/me/home）
 - SQLAlchemy 模型、自动建表、种子数据
 - JWT 鉴权（登录、刷新轮换、登出撤销、受保护 `/users/me`）
 - Alembic 迁移骨架与初始迁移
 - 后端基础 API 测试（6 条，已通过）
+
