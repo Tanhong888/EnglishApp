@@ -102,6 +102,26 @@ def get_article_audio(article_id: int, db: Session = Depends(get_db)) -> dict:
     return success(data)
 
 
+@router.get('/{article_id}/favorite-status')
+def favorite_status(
+    article_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+
+    favorite = db.scalar(
+        select(UserArticleFavorite).where(
+            UserArticleFavorite.user_id == current_user.id,
+            UserArticleFavorite.article_id == article_id,
+        )
+    )
+
+    return success({'article_id': article_id, 'favorite': favorite.is_favorited if favorite is not None else False})
+
+
 @router.post('/{article_id}/favorite')
 def favorite_article(
     article_id: int,

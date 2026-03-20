@@ -178,3 +178,20 @@ def test_quiz_flow_endpoints(client: TestClient) -> None:
     attempt_data = attempt_response.json()['data']
     assert attempt_data['attempt_id'] == attempt_id
     assert 'accuracy' in attempt_data
+
+def test_favorite_status_endpoint(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    status_before = client.get('/api/v1/articles/1/favorite-status', headers=headers)
+    assert status_before.status_code == 200
+
+    client.delete('/api/v1/articles/1/favorite', headers=headers)
+    status_after_unfavorite = client.get('/api/v1/articles/1/favorite-status', headers=headers)
+    assert status_after_unfavorite.status_code == 200
+    assert status_after_unfavorite.json()['data']['favorite'] is False
+
+    client.post('/api/v1/articles/1/favorite', headers=headers)
+    status_after_favorite = client.get('/api/v1/articles/1/favorite-status', headers=headers)
+    assert status_after_favorite.status_code == 200
+    assert status_after_favorite.json()['data']['favorite'] is True

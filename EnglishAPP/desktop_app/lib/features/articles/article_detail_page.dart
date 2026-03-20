@@ -2,7 +2,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/api_client.dart';
 import '../../core/state/session_controller.dart';
 
 class ArticleDetailPage extends ConsumerStatefulWidget {
@@ -18,6 +17,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   late Future<Map<String, dynamic>> _future;
   bool _isFavorited = false;
   bool _favoriteSubmitting = false;
+  bool _progressSubmitting = false;
 
   @override
   void initState() {
@@ -27,8 +27,26 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
 
   Future<Map<String, dynamic>> _loadData() async {
     final api = ref.read(apiClientProvider);
+    final session = ref.read(sessionProvider);
+
     final detail = await api.get('/articles/${widget.articleId}');
     final audio = await api.get('/articles/${widget.articleId}/audio');
+
+    if (session.isAuthenticated) {
+      try {
+        final favoriteStatus = await api.get(
+          '/articles/${widget.articleId}/favorite-status',
+          accessToken: session.accessToken,
+        );
+        final favoriteData = (favoriteStatus['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+        _isFavorited = favoriteData['favorite'] as bool? ?? false;
+      } catch (_) {
+        _isFavorited = false;
+      }
+    } else {
+      _isFavorited = false;
+    }
+
     return {
       'detail': detail,
       'audio': audio,
@@ -70,6 +88,42 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     }
   }
 
+  Future<void> _saveProgress(int paragraphIndex) async {
+    final session = ref.read(sessionProvider);
+    if (!session.isAuthenticated) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先登录再保存进度')));
+      return;
+    }
+
+    setState(() {
+      _progressSubmitting = true;
+    });
+
+    final api = ref.read(apiClientProvider);
+    try {
+      await api.post(
+        '/reading/progress',
+        accessToken: session.accessToken,
+        body: {
+          'article_id': int.tryParse(widget.articleId) ?? 0,
+          'paragraph_index': paragraphIndex,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('阅读进度已保存')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存进度失败：$e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _progressSubmitting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -92,6 +146,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           final audioData = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
           final paragraphs = (detailData['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
           final audioStatus = audioData['status']?.toString() ?? 'pending';
+          final paragraphIndex = paragraphs.isEmpty ? 1 : paragraphs.length;
 
           return Padding(
             padding: const EdgeInsets.all(16),
@@ -135,6 +190,14 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton(
+                    onPressed: _progressSubmitting ? null : () => _saveProgress(paragraphIndex),
+                    child: Text(_progressSubmitting ? '保存中...' : '保存阅读进度'),
+                  ),
+                ),
               ],
             ),
           );
@@ -163,4 +226,3 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 }
-
