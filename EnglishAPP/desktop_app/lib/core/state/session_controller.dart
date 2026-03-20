@@ -104,8 +104,110 @@ class SessionController extends StateNotifier<SessionState> {
   }
 }
 
+class AuthenticatedApi {
+  AuthenticatedApi(this._ref);
+
+  final Ref _ref;
+
+  ApiClient get _api => _ref.read(apiClientProvider);
+
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, String>? query,
+    bool requiresAuth = false,
+  }) {
+    return _withAuth(
+      requiresAuth: requiresAuth,
+      request: (token) => _api.get(path, accessToken: token, query: query),
+    );
+  }
+
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Object? body,
+    bool requiresAuth = false,
+  }) {
+    return _withAuth(
+      requiresAuth: requiresAuth,
+      request: (token) => _api.post(path, accessToken: token, body: body),
+    );
+  }
+
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Object? body,
+    bool requiresAuth = false,
+  }) {
+    return _withAuth(
+      requiresAuth: requiresAuth,
+      request: (token) => _api.delete(path, accessToken: token, body: body),
+    );
+  }
+
+  Future<Map<String, dynamic>> _withAuth({
+    required bool requiresAuth,
+    required Future<Map<String, dynamic>> Function(String? accessToken) request,
+  }) async {
+    final session = _ref.read(sessionProvider);
+
+    if (requiresAuth && !session.isAuthenticated) {
+      throw ApiException(401, 'missing_authorization');
+    }
+
+    try {
+      return await request(session.accessToken);
+    } on ApiException catch (e) {
+      if (e.statusCode != 401 || !session.isAuthenticated) {
+        rethrow;
+      }
+
+      final refreshed = await _tryRefreshToken();
+      if (!refreshed) {
+        rethrow;
+      }
+
+      final newSession = _ref.read(sessionProvider);
+      return request(newSession.accessToken);
+    }
+  }
+
+  Future<bool> _tryRefreshToken() async {
+    final session = _ref.read(sessionProvider);
+    if (session.refreshToken == null || session.refreshToken!.isEmpty) {
+      return false;
+    }
+
+    try {
+      final response = await _api.post(
+        '/auth/refresh',
+        body: {'refresh_token': session.refreshToken},
+      );
+      final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final newAccessToken = data['access_token']?.toString();
+      final newRefreshToken = data['refresh_token']?.toString();
+      if (newAccessToken == null || newRefreshToken == null) {
+        return false;
+      }
+
+      await _ref.read(sessionProvider.notifier).setSession(
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            user: session.user ?? <String, dynamic>{},
+          );
+      return true;
+    } catch (_) {
+      await _ref.read(sessionProvider.notifier).clear();
+      return false;
+    }
+  }
+}
+
 final apiClientProvider = Provider<ApiClient>((ref) {
   return ApiClient();
+});
+
+final authApiProvider = Provider<AuthenticatedApi>((ref) {
+  return AuthenticatedApi(ref);
 });
 
 final sessionProvider = StateNotifierProvider<SessionController, SessionState>((ref) {

@@ -24,8 +24,8 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) return const <Map<String, dynamic>>[];
 
-    final api = ref.read(apiClientProvider);
-    final response = await api.get('/me/favorites', accessToken: session.accessToken);
+    final api = ref.read(authApiProvider);
+    final response = await api.get('/me/favorites', requiresAuth: true);
     final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final items = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
     return items.map((raw) => raw.cast<String, dynamic>()).toList();
@@ -99,3 +99,4 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
     );
   }
 }
+

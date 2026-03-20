@@ -26,17 +26,18 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   }
 
   Future<Map<String, dynamic>> _loadData() async {
-    final api = ref.read(apiClientProvider);
+    final publicApi = ref.read(apiClientProvider);
+    final authApi = ref.read(authApiProvider);
     final session = ref.read(sessionProvider);
 
-    final detail = await api.get('/articles/${widget.articleId}');
-    final audio = await api.get('/articles/${widget.articleId}/audio');
+    final detail = await publicApi.get('/articles/${widget.articleId}');
+    final audio = await publicApi.get('/articles/${widget.articleId}/audio');
 
     if (session.isAuthenticated) {
       try {
-        final favoriteStatus = await api.get(
+        final favoriteStatus = await authApi.get(
           '/articles/${widget.articleId}/favorite-status',
-          accessToken: session.accessToken,
+          requiresAuth: true,
         );
         final favoriteData = (favoriteStatus['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
         _isFavorited = favoriteData['favorite'] as bool? ?? false;
@@ -65,12 +66,12 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       _favoriteSubmitting = true;
     });
 
-    final api = ref.read(apiClientProvider);
+    final authApi = ref.read(authApiProvider);
     try {
       if (_isFavorited) {
-        await api.delete('/articles/${widget.articleId}/favorite', accessToken: session.accessToken);
+        await authApi.delete('/articles/${widget.articleId}/favorite', requiresAuth: true);
       } else {
-        await api.post('/articles/${widget.articleId}/favorite', accessToken: session.accessToken);
+        await authApi.post('/articles/${widget.articleId}/favorite', requiresAuth: true);
       }
       if (!mounted) return;
       setState(() {
@@ -100,11 +101,11 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       _progressSubmitting = true;
     });
 
-    final api = ref.read(apiClientProvider);
+    final authApi = ref.read(authApiProvider);
     try {
-      await api.post(
+      await authApi.post(
         '/reading/progress',
-        accessToken: session.accessToken,
+        requiresAuth: true,
         body: {
           'article_id': int.tryParse(widget.articleId) ?? 0,
           'paragraph_index': paragraphIndex,

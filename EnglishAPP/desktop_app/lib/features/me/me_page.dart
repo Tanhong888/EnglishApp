@@ -26,8 +26,8 @@ class _MePageState extends ConsumerState<MePage> {
     if (!session.isAuthenticated) {
       return Future.value({'data': <String, dynamic>{}});
     }
-    final api = ref.read(apiClientProvider);
-    return api.get('/me/stats', accessToken: session.accessToken);
+    final api = ref.read(authApiProvider);
+    return api.get('/me/stats', requiresAuth: true);
   }
 
   Future<void> _refresh() async {
@@ -41,9 +41,9 @@ class _MePageState extends ConsumerState<MePage> {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) return;
 
-    final api = ref.read(apiClientProvider);
+    final api = ref.read(authApiProvider);
     try {
-      await api.delete('/users/me', accessToken: session.accessToken, body: {'mode': mode});
+      await api.delete('/users/me', body: {'mode': mode}, requiresAuth: true);
       await ref.read(sessionProvider.notifier).clear();
       if (!mounted) return;
       context.go('/login');
@@ -147,3 +147,4 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
+

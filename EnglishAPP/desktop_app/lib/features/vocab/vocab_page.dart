@@ -31,8 +31,8 @@ class _VocabPageState extends ConsumerState<VocabPage> {
       query['source_article_id'] = _sourceArticleId.toString();
     }
 
-    final api = ref.read(apiClientProvider);
-    final response = await api.get('/me/vocab', accessToken: session.accessToken, query: query);
+    final api = ref.read(authApiProvider);
+    final response = await api.get('/me/vocab', query: query, requiresAuth: true);
     final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final items = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
     return items.map((raw) => raw.cast<String, dynamic>()).toList();
@@ -144,3 +144,4 @@ class _VocabPageState extends ConsumerState<VocabPage> {
     );
   }
 }
+
