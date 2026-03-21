@@ -34,6 +34,15 @@ class ApiClient {
     return _send('POST', uri, accessToken: accessToken, body: body);
   }
 
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    String? accessToken,
+    Object? body,
+  }) async {
+    final uri = Uri.parse('$_baseUrl$path');
+    return _send('PATCH', uri, accessToken: accessToken, body: body);
+  }
+
   Future<Map<String, dynamic>> delete(
     String path, {
     String? accessToken,

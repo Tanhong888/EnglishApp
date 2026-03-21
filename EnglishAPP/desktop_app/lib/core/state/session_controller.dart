@@ -133,6 +133,17 @@ class AuthenticatedApi {
     );
   }
 
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Object? body,
+    bool requiresAuth = false,
+  }) {
+    return _withAuth(
+      requiresAuth: requiresAuth,
+      request: (token) => _api.patch(path, accessToken: token, body: body),
+    );
+  }
+
   Future<Map<String, dynamic>> delete(
     String path, {
     Object? body,
@@ -213,3 +224,4 @@ final authApiProvider = Provider<AuthenticatedApi>((ref) {
 final sessionProvider = StateNotifierProvider<SessionController, SessionState>((ref) {
   return SessionController();
 });
+

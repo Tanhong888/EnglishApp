@@ -22,6 +22,11 @@ class UpdateVocabRequest(BaseModel):
     mastered: bool
 
 
+class UpdateWordMasteredRequest(BaseModel):
+    mastered: bool
+    source_article_id: int | None = None
+
+
 @router.post('')
 def add_vocab(
     payload: AddVocabRequest,
@@ -84,3 +89,39 @@ def update_vocab(
     db.commit()
 
     return success({'entry_id': entry_id, 'mastered': payload.mastered})
+
+
+@router.patch('/word/{word_id}')
+def update_word_mastered(
+    word_id: int,
+    payload: UpdateWordMasteredRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    query = select(UserVocabEntry).where(
+        UserVocabEntry.user_id == current_user.id,
+        UserVocabEntry.word_id == word_id,
+    )
+
+    if payload.source_article_id is not None:
+        query = query.where(UserVocabEntry.source_article_id == payload.source_article_id)
+
+    entries = db.scalars(query).all()
+    if not entries:
+        raise HTTPException(status_code=404, detail='vocab entries not found')
+
+    now = datetime.now(timezone.utc)
+    for entry in entries:
+        entry.mastered = payload.mastered
+        entry.updated_at = now
+
+    db.commit()
+
+    return success(
+        {
+            'word_id': word_id,
+            'mastered': payload.mastered,
+            'updated_count': len(entries),
+            'source_article_id': payload.source_article_id,
+        }
+    )

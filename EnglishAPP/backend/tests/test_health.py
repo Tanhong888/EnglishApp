@@ -207,3 +207,50 @@ def test_word_lookup_endpoint(client: TestClient) -> None:
 def test_word_lookup_not_found(client: TestClient) -> None:
     response = client.get('/api/v1/words/nonexistentwordxyz')
     assert response.status_code == 404
+
+
+def test_vocab_word_mastered_update_by_source(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    reset_response = client.patch('/api/v1/vocab/word/1', json={'mastered': False}, headers=headers)
+    assert reset_response.status_code == 200
+
+    source_update = client.patch(
+        '/api/v1/vocab/word/1',
+        json={'mastered': True, 'source_article_id': 1},
+        headers=headers,
+    )
+    assert source_update.status_code == 200
+    assert source_update.json()['data']['updated_count'] == 1
+
+    source_1_vocab = client.get('/api/v1/me/vocab', params={'source_article_id': 1}, headers=headers)
+    source_2_vocab = client.get('/api/v1/me/vocab', params={'source_article_id': 2}, headers=headers)
+    all_vocab = client.get('/api/v1/me/vocab', headers=headers)
+
+    assert source_1_vocab.status_code == 200
+    assert source_2_vocab.status_code == 200
+    assert all_vocab.status_code == 200
+
+    source_1_items = source_1_vocab.json()['data']['items']
+    source_2_items = source_2_vocab.json()['data']['items']
+    all_items = all_vocab.json()['data']['items']
+
+    word_1_from_source_1 = next(item for item in source_1_items if item['word_id'] == 1)
+    word_1_from_source_2 = next(item for item in source_2_items if item['word_id'] == 1)
+    word_1_aggregated = next(item for item in all_items if item['word_id'] == 1)
+
+    assert word_1_from_source_1['mastered'] is True
+    assert word_1_from_source_2['mastered'] is False
+    assert word_1_aggregated['mastered'] is False
+
+
+
+def test_article_audio_failed_contract(client: TestClient) -> None:
+    response = client.get('/api/v1/articles/3/audio')
+    assert response.status_code == 200
+
+    data = response.json()['data']
+    assert data['status'] == 'failed'
+    assert data['article_audio_url'] is None
+    assert data['retry_hint'] == '稍后重试'

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -15,6 +15,7 @@ class VocabPage extends ConsumerStatefulWidget {
 class _VocabPageState extends ConsumerState<VocabPage> {
   int? _sourceArticleId;
   late Future<List<Map<String, dynamic>>> _future;
+  final Set<int> _updatingWordIds = <int>{};
 
   @override
   void initState() {
@@ -43,6 +44,39 @@ class _VocabPageState extends ConsumerState<VocabPage> {
       _future = _loadVocab();
     });
     await _future;
+  }
+
+  Future<void> _setWordMastered(int wordId, bool mastered) async {
+    setState(() {
+      _updatingWordIds.add(wordId);
+    });
+
+    final api = ref.read(authApiProvider);
+    try {
+      final body = <String, dynamic>{'mastered': mastered};
+      if (_sourceArticleId != null) {
+        body['source_article_id'] = _sourceArticleId;
+      }
+      await api.patch(
+        '/vocab/word/$wordId',
+        requiresAuth: true,
+        body: body,
+      );
+      if (!mounted) return;
+      await _refresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mastered ? '已标记掌握' : '已取消掌握')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新失败：$e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingWordIds.remove(wordId);
+        });
+      }
+    }
   }
 
   @override
@@ -111,18 +145,30 @@ class _VocabPageState extends ConsumerState<VocabPage> {
                       ),
                       const SizedBox(height: 12),
                       ...items.map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Card(
-                            child: ListTile(
-                              title: Text(item['lemma']?.toString() ?? '-'),
-                              subtitle: Text(
-                                '来源 ${item['source_count'] ?? 0} 篇 · 最新文章 #${item['latest_source_article_id'] ?? '-'}',
+                        (item) {
+                          final wordId = (item['word_id'] as num?)?.toInt() ?? 0;
+                          final mastered = item['mastered'] as bool? ?? false;
+                          final updating = _updatingWordIds.contains(wordId);
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Card(
+                              child: ListTile(
+                                title: Text(item['lemma']?.toString() ?? '-'),
+                                subtitle: Text(
+                                  '来源 ${item['source_count'] ?? 0} 篇 · 最新文章 #${item['latest_source_article_id'] ?? '-'}',
+                                ),
+                                trailing: OutlinedButton(
+                                  onPressed: updating
+                                      ? null
+                                      : () => _setWordMastered(wordId, !mastered),
+                                  child: Text(
+                                    updating ? '更新中...' : (mastered ? '取消掌握' : '标记掌握'),
+                                  ),
+                                ),
                               ),
-                              trailing: Text((item['mastered'] as bool? ?? false) ? '已掌握' : '未掌握'),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                       if (items.isEmpty)
                         const Padding(
@@ -144,4 +190,3 @@ class _VocabPageState extends ConsumerState<VocabPage> {
     );
   }
 }
-

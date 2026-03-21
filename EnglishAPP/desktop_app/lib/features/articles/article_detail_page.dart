@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -19,6 +19,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   bool _favoriteSubmitting = false;
   bool _progressSubmitting = false;
   bool _addingVocab = false;
+  String _audioStatus = 'pending';
   final TextEditingController _wordController = TextEditingController();
 
   @override
@@ -40,6 +41,8 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
 
     final detail = await publicApi.get('/articles/${widget.articleId}');
     final audio = await publicApi.get('/articles/${widget.articleId}/audio');
+    final audioData = (audio['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    _audioStatus = audioData['status']?.toString() ?? 'pending';
 
     if (session.isAuthenticated) {
       try {
@@ -60,6 +63,68 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       'detail': detail,
       'audio': audio,
     };
+  }
+
+  List<String> _extractTopWords(List<Map> paragraphs) {
+    final stopWords = <String>{
+      'the',
+      'and',
+      'that',
+      'with',
+      'this',
+      'from',
+      'have',
+      'will',
+      'your',
+      'you',
+      'for',
+      'are',
+      'was',
+      'were',
+      'but',
+      'not',
+      'can',
+      'into',
+      'than',
+      'then',
+      'they',
+      'them',
+      'their',
+      'also',
+      'about',
+      'while',
+      'after',
+      'before',
+      'because',
+      'which',
+      'where',
+      'when',
+    };
+
+    final counts = <String, int>{};
+    final regex = RegExp(r"[A-Za-z]+", caseSensitive: false);
+
+    for (final raw in paragraphs) {
+      final text = raw.cast<String, dynamic>()['text']?.toString() ?? '';
+      for (final match in regex.allMatches(text)) {
+        final word = match.group(0)?.toLowerCase() ?? '';
+        if (word.length < 4 || stopWords.contains(word)) {
+          continue;
+        }
+        counts[word] = (counts[word] ?? 0) + 1;
+      }
+    }
+
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        if (byCount != 0) {
+          return byCount;
+        }
+        return a.key.compareTo(b.key);
+      });
+
+    return entries.take(12).map((e) => e.key).toList();
   }
 
   Future<void> _toggleFavorite() async {
@@ -133,7 +198,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     }
   }
 
-  Future<void> _lookupAndAddVocab() async {
+  Future<void> _lookupAndAddVocab([String? presetWord]) async {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
       if (!mounted) return;
@@ -141,7 +206,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       return;
     }
 
-    final rawWord = _wordController.text.trim().toLowerCase();
+    final rawWord = (presetWord ?? _wordController.text).trim().toLowerCase();
     if (rawWord.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入要查询的单词')));
@@ -212,7 +277,9 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           final audioData = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
           final paragraphs = (detailData['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
           final audioStatus = audioData['status']?.toString() ?? 'pending';
+          _audioStatus = audioStatus;
           final paragraphIndex = paragraphs.isEmpty ? 1 : paragraphs.length;
+          final quickWords = _extractTopWords(paragraphs);
 
           return Padding(
             padding: const EdgeInsets.all(16),
@@ -267,6 +334,23 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                     ),
                   ],
                 ),
+                if (quickWords.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('快捷点词加入生词本'),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: quickWords
+                        .map(
+                          (word) => ActionChip(
+                            label: Text(word),
+                            onPressed: _addingVocab ? null : () => _lookupAndAddVocab(word),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -298,7 +382,17 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              OutlinedButton(onPressed: () {}, child: const Text('全文播放')),
+              if (_audioStatus != 'failed')
+                OutlinedButton(
+                  onPressed: _audioStatus == 'ready'
+                      ? () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Windows 端全文播放即将接入')),
+                          );
+                        }
+                      : null,
+                  child: Text(_audioStatus == 'ready' ? '全文播放' : '音频生成中'),
+                ),
               OutlinedButton(
                 onPressed: () => context.go('/articles/${widget.articleId}/analysis'),
                 child: const Text('句子解析'),
