@@ -21,6 +21,9 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   bool _addingVocab = false;
   String _audioStatus = 'pending';
   final TextEditingController _wordController = TextEditingController();
+  final Set<String> _addedWords = <String>{};
+
+  int get _articleId => int.tryParse(widget.articleId) ?? 0;
 
   @override
   void initState() {
@@ -127,6 +130,190 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     return entries.take(12).map((e) => e.key).toList();
   }
 
+  Future<Map<String, dynamic>> _lookupWordDetail(String word) async {
+    final publicApi = ref.read(apiClientProvider);
+    final response = await publicApi.get('/words/${Uri.encodeComponent(word.trim().toLowerCase())}');
+    return (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+  }
+
+  Future<bool> _addWordToVocab({
+    required int wordId,
+    required String lemma,
+    bool showSnack = true,
+  }) async {
+    final session = ref.read(sessionProvider);
+    if (!session.isAuthenticated) {
+      if (mounted && showSnack) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先登录再加入生词本')));
+      }
+      return false;
+    }
+
+    final authApi = ref.read(authApiProvider);
+    try {
+      final addResp = await authApi.post(
+        '/vocab',
+        requiresAuth: true,
+        body: {
+          'word_id': wordId,
+          'source_article_id': _articleId,
+        },
+      );
+      final addData = (addResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final created = addData['created'] as bool? ?? false;
+
+      if (mounted) {
+        setState(() {
+          _addedWords.add(lemma.toLowerCase());
+        });
+      }
+
+      if (mounted && showSnack) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(created ? '已加入生词本：$lemma' : '生词已存在该文章来源：$lemma')),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (mounted && showSnack) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加入生词本失败：$e')));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _openWordCard(String word) async {
+    final normalized = word.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    Map<String, dynamic> wordData;
+    try {
+      wordData = await _lookupWordDetail(normalized);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('查词失败：$e')));
+      return;
+    }
+
+    if (!mounted) return;
+
+    final lemma = wordData['lemma']?.toString() ?? normalized;
+    final phonetic = wordData['phonetic']?.toString() ?? '-';
+    final pos = wordData['pos']?.toString() ?? '-';
+    final meaning = wordData['meaning_cn']?.toString() ?? '-';
+    final wordId = (wordData['id'] as num?)?.toInt();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        var alreadyAdded = _addedWords.contains(lemma.toLowerCase());
+        var submitting = false;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(lemma, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Text('音标：$phonetic'),
+                  const SizedBox(height: 6),
+                  Text('词性：$pos'),
+                  const SizedBox(height: 6),
+                  Text('释义：$meaning'),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(sheetContext).showSnackBar(
+                        const SnackBar(content: Text('单词发音能力即将接入 Windows 端')),
+                      );
+                    },
+                    icon: const Icon(Icons.volume_up_rounded),
+                    label: const Text('发音'),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('关闭'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: (wordId == null || alreadyAdded || submitting)
+                            ? null
+                            : () async {
+                                setSheetState(() {
+                                  submitting = true;
+                                });
+                                final ok = await _addWordToVocab(
+                                  wordId: wordId,
+                                  lemma: lemma,
+                                  showSnack: true,
+                                );
+                                if (!mounted) return;
+                                setSheetState(() {
+                                  submitting = false;
+                                  if (ok) {
+                                    alreadyAdded = true;
+                                  }
+                                });
+                              },
+                        child: Text(
+                          submitting
+                              ? '加入中...'
+                              : (alreadyAdded ? '已在生词本' : '加入生词本'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildInteractiveParagraph(String text) {
+    final tokenRegex = RegExp(r"[A-Za-z]+|[^A-Za-z]+");
+    final wordRegex = RegExp(r"^[A-Za-z]+$");
+    final tokens = tokenRegex.allMatches(text).map((m) => m.group(0) ?? '').toList();
+
+    return Wrap(
+      children: tokens.map((token) {
+        if (wordRegex.hasMatch(token)) {
+          final normalized = token.toLowerCase();
+          final isAdded = _addedWords.contains(normalized);
+          return InkWell(
+            onTap: () => _openWordCard(normalized),
+            child: Text(
+              token,
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.7,
+                color: isAdded ? Colors.green.shade700 : Colors.blue.shade700,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          );
+        }
+
+        return Text(
+          token,
+          style: const TextStyle(height: 1.7, fontSize: 16),
+        );
+      }).toList(),
+    );
+  }
+
   Future<void> _toggleFavorite() async {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
@@ -180,7 +367,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         '/reading/progress',
         requiresAuth: true,
         body: {
-          'article_id': int.tryParse(widget.articleId) ?? 0,
+          'article_id': _articleId,
           'paragraph_index': paragraphIndex,
         },
       );
@@ -199,13 +386,6 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   }
 
   Future<void> _lookupAndAddVocab([String? presetWord]) async {
-    final session = ref.read(sessionProvider);
-    if (!session.isAuthenticated) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先登录再加入生词本')));
-      return;
-    }
-
     final rawWord = (presetWord ?? _wordController.text).trim().toLowerCase();
     if (rawWord.isEmpty) {
       if (!mounted) return;
@@ -217,32 +397,18 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       _addingVocab = true;
     });
 
-    final publicApi = ref.read(apiClientProvider);
-    final authApi = ref.read(authApiProvider);
     try {
-      final wordResp = await publicApi.get('/words/${Uri.encodeComponent(rawWord)}');
-      final wordData = (wordResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final wordData = await _lookupWordDetail(rawWord);
       final wordId = (wordData['id'] as num?)?.toInt();
+      final lemma = wordData['lemma']?.toString() ?? rawWord;
       if (wordId == null) {
         throw Exception('word_id_missing');
       }
 
-      final addResp = await authApi.post(
-        '/vocab',
-        requiresAuth: true,
-        body: {
-          'word_id': wordId,
-          'source_article_id': int.tryParse(widget.articleId) ?? 0,
-        },
-      );
-      final addData = (addResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final created = addData['created'] as bool? ?? false;
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(created ? '已加入生词本：$rawWord' : '生词已存在该文章来源：$rawWord')),
-      );
-      _wordController.clear();
+      await _addWordToVocab(wordId: wordId, lemma: lemma, showSnack: true);
+      if (mounted) {
+        _wordController.clear();
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('查词或加入失败：$e')));
@@ -311,15 +477,25 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                     padding: EdgeInsets.only(top: 6),
                     child: Text('音频生成失败，请稍后重试或使用文本阅读。'),
                   ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                const Text('点击蓝色单词可查看释义并加入生词本'),
+                const SizedBox(height: 12),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: Text(
-                      paragraphs
-                          .map((raw) => raw.cast<String, dynamic>()['text']?.toString() ?? '')
-                          .where((line) => line.isNotEmpty)
-                          .join('\n\n'),
-                      style: const TextStyle(height: 1.7, fontSize: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ...paragraphs.map((raw) {
+                          final text = raw.cast<String, dynamic>()['text']?.toString() ?? '';
+                          if (text.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildInteractiveParagraph(text),
+                          );
+                        }),
+                      ],
                     ),
                   ),
                 ),
