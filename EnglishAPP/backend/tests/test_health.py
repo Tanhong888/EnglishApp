@@ -159,15 +159,13 @@ def test_quiz_flow_endpoints(client: TestClient) -> None:
     assert quiz_response.status_code == 200
 
     questions = quiz_response.json()['data']['questions']
-    assert len(questions) >= 1
+    assert len(questions) == 3
 
     submit_response = client.post(
         '/api/v1/quiz/submit',
         json={
             'article_id': 1,
-            'answers': [
-                {'question_id': questions[0]['question_id'], 'answer': 'A'},
-            ],
+            'answers': [],
         },
     )
     assert submit_response.status_code == 200
@@ -175,9 +173,13 @@ def test_quiz_flow_endpoints(client: TestClient) -> None:
     attempt_id = submit_response.json()['data']['attempt_id']
     attempt_response = client.get(f'/api/v1/quiz/attempts/{attempt_id}')
     assert attempt_response.status_code == 200
+
     attempt_data = attempt_response.json()['data']
     assert attempt_data['attempt_id'] == attempt_id
-    assert 'accuracy' in attempt_data
+    assert attempt_data['total_count'] == 3
+    assert attempt_data['correct_count'] == 0
+    assert attempt_data['accuracy'] == 0.0
+    assert attempt_data['wrong_items'] == [1, 2, 3]
 
 def test_favorite_status_endpoint(client: TestClient) -> None:
     tokens = login_and_get_tokens(client)
@@ -340,3 +342,5 @@ def test_article_audio_ready_contract(client: TestClient) -> None:
         assert item['end'] > item['start']
         assert item['start'] >= previous_end
         previous_end = item['end']
+
+
