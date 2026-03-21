@@ -1,4 +1,5 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -23,6 +24,44 @@ def serialize_article(article: Article) -> dict:
         'is_completed': article.is_completed,
         'published_at': article.published_at.isoformat(),
     }
+
+
+def _word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z]+", text or ""))
+
+
+def _build_paragraph_timestamps(article: Article, paragraphs: list[ArticleParagraph]) -> list[dict]:
+    if not paragraphs:
+        return []
+
+    base_ms = 3000
+    paragraph_count = len(paragraphs)
+    target_total_ms = max(article.reading_minutes * 60 * 1000, paragraph_count * base_ms)
+
+    weights = [max(_word_count(p.text), 1) for p in paragraphs]
+    total_weight = sum(weights) or paragraph_count
+    remaining_ms = max(target_total_ms - paragraph_count * base_ms, 0)
+
+    durations = [base_ms + int(remaining_ms * weight / total_weight) for weight in weights]
+    drift = target_total_ms - sum(durations)
+    durations[-1] += drift
+
+    cursor_ms = 0
+    timestamps: list[dict] = []
+    for paragraph, duration_ms in zip(paragraphs, durations):
+        start_ms = cursor_ms
+        end_ms = max(start_ms + 1000, start_ms + duration_ms)
+        cursor_ms = end_ms
+
+        timestamps.append(
+            {
+                'index': paragraph.paragraph_index,
+                'start': round(start_ms / 1000, 3),
+                'end': round(end_ms / 1000, 3),
+            }
+        )
+
+    return timestamps
 
 
 @router.get('')
@@ -93,10 +132,19 @@ def get_article_audio(article_id: int, db: Session = Depends(get_db)) -> dict:
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
 
+    paragraph_timestamps: list[dict] = []
+    if article.audio_status == 'ready':
+        paragraphs = db.scalars(
+            select(ArticleParagraph)
+            .where(ArticleParagraph.article_id == article_id)
+            .order_by(ArticleParagraph.paragraph_index.asc())
+        ).all()
+        paragraph_timestamps = _build_paragraph_timestamps(article, paragraphs)
+
     data = {
         'status': article.audio_status,
         'article_audio_url': article.article_audio_url if article.audio_status == 'ready' else None,
-        'paragraph_timestamps': [] if article.audio_status != 'ready' else [{'index': 1, 'start': 0.0, 'end': 2.3}],
+        'paragraph_timestamps': paragraph_timestamps,
         'retry_hint': '稍后重试' if article.audio_status == 'failed' else None,
     }
     return success(data)

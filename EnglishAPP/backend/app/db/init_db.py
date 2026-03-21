@@ -1,4 +1,4 @@
-﻿from sqlalchemy import select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.constants import DEMO_USER_ID
@@ -62,6 +62,7 @@ def seed_db(db: Session) -> None:
         ArticleParagraph(article_id=articles[0].id, paragraph_index=1, text="Sleep plays a major role in memory consolidation."),
         ArticleParagraph(article_id=articles[0].id, paragraph_index=2, text="Students with better sleep quality often perform better."),
         ArticleParagraph(article_id=articles[1].id, paragraph_index=1, text="Urban trees improve air quality and mental health."),
+        ArticleParagraph(article_id=articles[1].id, paragraph_index=2, text="They also reduce noise, cool neighborhoods, and support biodiversity in dense cities."),
     ]
     db.add_all(paragraphs)
 

@@ -27,10 +27,13 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   final Set<String> _addedWords = <String>{};
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription<PlayerState>? _playerStateSub;
+  StreamSubscription<Duration>? _positionSub;
   String? _articleAudioUrl;
   String? _loadedAudioUrl;
   bool _isAudioLoading = false;
   bool _isAudioPlaying = false;
+  List<Map<String, dynamic>> _paragraphTimestamps = <Map<String, dynamic>>[];
+  int? _currentPlayingParagraphIndex;
 
   int get _articleId => int.tryParse(widget.articleId) ?? 0;
 
@@ -47,15 +50,30 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         _isAudioLoading = isLoading;
         if (state.processingState == ProcessingState.completed) {
           _isAudioPlaying = false;
+          _currentPlayingParagraphIndex = null;
         }
       });
     });
+
+    _positionSub = _audioPlayer.positionStream.listen((position) {
+      if (!mounted || _paragraphTimestamps.isEmpty) {
+        return;
+      }
+      final matchedIndex = _matchParagraphIndexByPosition(position);
+      if (matchedIndex != _currentPlayingParagraphIndex) {
+        setState(() {
+          _currentPlayingParagraphIndex = matchedIndex;
+        });
+      }
+    });
+
     _future = _loadData();
   }
 
   @override
   void dispose() {
     _playerStateSub?.cancel();
+    _positionSub?.cancel();
     unawaited(_audioPlayer.dispose());
     _wordController.dispose();
     super.dispose();
@@ -71,6 +89,16 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final audioData = (audio['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     _audioStatus = audioData['status']?.toString() ?? 'pending';
     _articleAudioUrl = audioData['article_audio_url']?.toString();
+    final ts = (audioData['paragraph_timestamps'] as List?)?.cast<Map>() ?? const <Map>[];
+    _paragraphTimestamps = ts
+        .map((raw) => raw.cast<String, dynamic>())
+        .where((raw) => _durationFromSecond(raw['start']) != null)
+        .toList()
+      ..sort((a, b) {
+        final aStart = _durationFromSecond(a['start']) ?? Duration.zero;
+        final bStart = _durationFromSecond(b['start']) ?? Duration.zero;
+        return aStart.compareTo(bStart);
+      });
 
     Map<String, dynamic> analyses = <String, dynamic>{'items': <Map<String, dynamic>>[]};
     try {
@@ -417,10 +445,14 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         await _audioPlayer.setUrl(_articleAudioUrl!);
         _loadedAudioUrl = _articleAudioUrl;
       }
+      await _audioPlayer.setClip();
 
       if (_audioPlayer.playing) {
         await _audioPlayer.pause();
       } else {
+        setState(() {
+          _currentPlayingParagraphIndex = _matchParagraphIndexByPosition(_audioPlayer.position);
+        });
         await _audioPlayer.play();
       }
     } catch (e) {
@@ -429,6 +461,98 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         _isAudioLoading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('音频播放失败：$e')));
+    }
+  }
+
+
+  Map<String, dynamic>? _timestampForParagraph(int paragraphIndex) {
+    for (final item in _paragraphTimestamps) {
+      final idx = (item['index'] as num?)?.toInt() ?? (item['paragraph_index'] as num?)?.toInt();
+      if (idx == paragraphIndex) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  Duration? _durationFromSecond(dynamic raw) {
+    if (raw is int) {
+      return Duration(milliseconds: raw * 1000);
+    }
+    if (raw is double) {
+      return Duration(milliseconds: (raw * 1000).round());
+    }
+    if (raw is num) {
+      return Duration(milliseconds: (raw.toDouble() * 1000).round());
+    }
+    if (raw is String) {
+      final value = double.tryParse(raw);
+      if (value != null) {
+        return Duration(milliseconds: (value * 1000).round());
+      }
+    }
+    return null;
+  }
+
+  int? _paragraphIndexFromTimestamp(Map<String, dynamic> item) {
+    return (item['index'] as num?)?.toInt() ?? (item['paragraph_index'] as num?)?.toInt();
+  }
+
+  int? _matchParagraphIndexByPosition(Duration position) {
+    for (final item in _paragraphTimestamps) {
+      final start = _durationFromSecond(item['start']);
+      if (start == null) {
+        continue;
+      }
+      final end = _durationFromSecond(item['end']);
+      final inRange = end == null ? position >= start : position >= start && position < end;
+      if (inRange) {
+        return _paragraphIndexFromTimestamp(item);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _playParagraphAudio(int paragraphIndex) async {
+    if (_audioStatus != 'ready' || _articleAudioUrl == null || _articleAudioUrl!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('音频暂不可播放')));
+      return;
+    }
+    final ts = _timestampForParagraph(paragraphIndex);
+    if (ts == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('该段暂无音频时间戳')));
+      return;
+    }
+
+    final start = _durationFromSecond(ts['start']);
+    final end = _durationFromSecond(ts['end']);
+    if (start == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('该段音频时间戳无效')));
+      return;
+    }
+
+    setState(() {
+      _isAudioLoading = true;
+      _currentPlayingParagraphIndex = paragraphIndex;
+    });
+
+    try {
+      if (_loadedAudioUrl != _articleAudioUrl) {
+        await _audioPlayer.setUrl(_articleAudioUrl!);
+        _loadedAudioUrl = _articleAudioUrl;
+      }
+      await _audioPlayer.setClip(start: start, end: end);
+      await _audioPlayer.seek(start);
+      await _audioPlayer.play();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isAudioLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('分段播放失败：$e')));
     }
   }
 
@@ -609,37 +733,69 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         ...paragraphs.map((raw) {
-                          final text = raw.cast<String, dynamic>()['text']?.toString() ?? '';
+                          final paragraphMap = raw.cast<String, dynamic>();
+                          final paragraphIdx = (paragraphMap['index'] as num?)?.toInt() ?? 1;
+                          final text = paragraphMap['text']?.toString() ?? '';
                           if (text.isEmpty) {
                             return const SizedBox.shrink();
                           }
 
                           final matched = _matchedAnalyses(text, analysisItems);
                           final highlighted = matched.isNotEmpty;
+                          final hasSegment = _timestampForParagraph(paragraphIdx) != null && _audioStatus == 'ready';
+                          final isPlayingParagraph =
+                              _currentPlayingParagraphIndex == paragraphIdx && _isAudioPlaying;
+                          final showBox = highlighted || isPlayingParagraph;
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: Container(
                               width: double.infinity,
-                              decoration: highlighted
+                              decoration: showBox
                                   ? BoxDecoration(
-                                      color: Colors.amber.shade50,
+                                      color: isPlayingParagraph ? Colors.lightBlue.shade50 : Colors.amber.shade50,
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: Colors.amber.shade200),
+                                      border: Border.all(
+                                        color: isPlayingParagraph ? Colors.lightBlue.shade300 : Colors.amber.shade200,
+                                      ),
                                     )
                                   : null,
-                              padding: highlighted
+                              padding: showBox
                                   ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
                                   : EdgeInsets.zero,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (highlighted)
-                                    TextButton.icon(
-                                      onPressed: () => _showAnalysisSheet(matched.first),
-                                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                                      icon: const Icon(Icons.auto_awesome, size: 16),
-                                      label: Text('重点句解析（${matched.length}）'),
+                                  if (highlighted || hasSegment)
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      children: [
+                                        if (highlighted)
+                                          TextButton.icon(
+                                            onPressed: () => _showAnalysisSheet(matched.first),
+                                            style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                                            icon: const Icon(Icons.auto_awesome, size: 16),
+                                            label: Text('重点句解析（${matched.length}）'),
+                                          ),
+                                        if (hasSegment)
+                                          OutlinedButton.icon(
+                                            onPressed: _isAudioLoading
+                                                ? null
+                                                : () async {
+                                                    if (isPlayingParagraph) {
+                                                      await _audioPlayer.pause();
+                                                    } else {
+                                                      await _playParagraphAudio(paragraphIdx);
+                                                    }
+                                                  },
+                                            icon: Icon(
+                                              isPlayingParagraph ? Icons.pause_circle_outline : Icons.play_arrow,
+                                              size: 16,
+                                            ),
+                                            label: Text(isPlayingParagraph ? '暂停本段' : '播放本段'),
+                                          ),
+                                      ],
                                     ),
                                   _buildInteractiveParagraph(text),
                                 ],
@@ -734,3 +890,4 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 }
+

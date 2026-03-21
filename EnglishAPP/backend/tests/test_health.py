@@ -1,4 +1,4 @@
-﻿from uuid import uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -311,3 +311,32 @@ def test_learning_records_time_filters(client: TestClient) -> None:
     future_response = client.get('/api/v1/me/learning-records', params={'date_from': '2999-01-01'}, headers=headers)
     assert future_response.status_code == 200
     assert future_response.json()['data'] == []
+
+def test_article_audio_ready_contract(client: TestClient) -> None:
+    response = client.get('/api/v1/articles/2/audio')
+    assert response.status_code == 200
+
+    detail_response = client.get('/api/v1/articles/2')
+    assert detail_response.status_code == 200
+
+    data = response.json()['data']
+    assert data['status'] == 'ready'
+    assert isinstance(data['article_audio_url'], str)
+    assert data['article_audio_url'].startswith('https://')
+
+    timestamps = data['paragraph_timestamps']
+    paragraphs = detail_response.json()['data']['paragraphs']
+
+    assert isinstance(timestamps, list)
+    assert len(timestamps) >= 1
+    assert len(timestamps) == len(paragraphs)
+
+    previous_end = -1.0
+    for item in timestamps:
+        assert 'index' in item
+        assert 'start' in item
+        assert 'end' in item
+        assert item['start'] >= 0
+        assert item['end'] > item['start']
+        assert item['start'] >= previous_end
+        previous_end = item['end']
