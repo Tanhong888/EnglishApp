@@ -18,11 +18,28 @@ class _ArticlesPageState extends ConsumerState<ArticlesPage> {
   int _page = 1;
   final int _size = 20;
   late Future<Map<String, dynamic>> _future;
+  bool _syncedQueryStage = false;
 
   @override
   void initState() {
     super.initState();
     _future = _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_syncedQueryStage) {
+      return;
+    }
+
+    final stage = GoRouterState.of(context).uri.queryParameters['stage'];
+    if (stage != null && {'all', 'cet4', 'cet6', 'kaoyan'}.contains(stage)) {
+      _stage = stage;
+      _page = 1;
+      _future = _loadData();
+    }
+    _syncedQueryStage = true;
   }
 
   Future<Map<String, dynamic>> _loadData() {

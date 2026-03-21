@@ -153,7 +153,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       .map(
                         (entry) => ActionChip(
                           label: Text(entry.toUpperCase()),
-                          onPressed: () => context.go('/articles'),
+                          onPressed: () => context.go('/articles?stage=$entry'),
                         ),
                       )
                       .toList(),
