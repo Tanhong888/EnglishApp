@@ -195,3 +195,15 @@ def test_favorite_status_endpoint(client: TestClient) -> None:
     status_after_favorite = client.get('/api/v1/articles/1/favorite-status', headers=headers)
     assert status_after_favorite.status_code == 200
     assert status_after_favorite.json()['data']['favorite'] is True
+
+def test_word_lookup_endpoint(client: TestClient) -> None:
+    response = client.get('/api/v1/words/consolidate')
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['lemma'] == 'consolidate'
+    assert 'meaning_cn' in data
+
+
+def test_word_lookup_not_found(client: TestClient) -> None:
+    response = client.get('/api/v1/words/nonexistentwordxyz')
+    assert response.status_code == 404

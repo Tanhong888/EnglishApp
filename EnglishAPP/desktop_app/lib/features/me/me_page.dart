@@ -37,6 +37,25 @@ class _MePageState extends ConsumerState<MePage> {
     await _future;
   }
 
+  Future<void> _logout() async {
+    final session = ref.read(sessionProvider);
+    final api = ref.read(apiClientProvider);
+
+    try {
+      final refreshToken = session.refreshToken;
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await api.post('/auth/logout', body: {'refresh_token': refreshToken});
+      }
+    } catch (_) {
+      // Logout should still clear local session even if network request fails.
+    }
+
+    await ref.read(sessionProvider.notifier).clear();
+    if (!mounted) return;
+    context.go('/login');
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已退出登录')));
+  }
+
   Future<void> _deleteAccount(String mode) async {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) return;
@@ -121,12 +140,8 @@ class _MePageState extends ConsumerState<MePage> {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () async {
-                          await ref.read(sessionProvider.notifier).clear();
-                          if (!context.mounted) return;
-                          context.go('/login');
-                        },
-                        child: const Text('退出本地会话'),
+                        onPressed: _logout,
+                        child: const Text('退出登录'),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -147,4 +162,3 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
-

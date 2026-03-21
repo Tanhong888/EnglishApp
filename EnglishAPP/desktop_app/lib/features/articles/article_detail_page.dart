@@ -18,11 +18,19 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   bool _isFavorited = false;
   bool _favoriteSubmitting = false;
   bool _progressSubmitting = false;
+  bool _addingVocab = false;
+  final TextEditingController _wordController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _future = _loadData();
+  }
+
+  @override
+  void dispose() {
+    _wordController.dispose();
+    super.dispose();
   }
 
   Future<Map<String, dynamic>> _loadData() async {
@@ -125,6 +133,63 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     }
   }
 
+  Future<void> _lookupAndAddVocab() async {
+    final session = ref.read(sessionProvider);
+    if (!session.isAuthenticated) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先登录再加入生词本')));
+      return;
+    }
+
+    final rawWord = _wordController.text.trim().toLowerCase();
+    if (rawWord.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入要查询的单词')));
+      return;
+    }
+
+    setState(() {
+      _addingVocab = true;
+    });
+
+    final publicApi = ref.read(apiClientProvider);
+    final authApi = ref.read(authApiProvider);
+    try {
+      final wordResp = await publicApi.get('/words/${Uri.encodeComponent(rawWord)}');
+      final wordData = (wordResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final wordId = (wordData['id'] as num?)?.toInt();
+      if (wordId == null) {
+        throw Exception('word_id_missing');
+      }
+
+      final addResp = await authApi.post(
+        '/vocab',
+        requiresAuth: true,
+        body: {
+          'word_id': wordId,
+          'source_article_id': int.tryParse(widget.articleId) ?? 0,
+        },
+      );
+      final addData = (addResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final created = addData['created'] as bool? ?? false;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(created ? '已加入生词本：$rawWord' : '生词已存在该文章来源：$rawWord')),
+      );
+      _wordController.clear();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('查词或加入失败：$e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _addingVocab = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -192,12 +257,34 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: OutlinedButton(
-                    onPressed: _progressSubmitting ? null : () => _saveProgress(paragraphIndex),
-                    child: Text(_progressSubmitting ? '保存中...' : '保存阅读进度'),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _progressSubmitting ? null : () => _saveProgress(paragraphIndex),
+                        child: Text(_progressSubmitting ? '保存中...' : '保存阅读进度'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _wordController,
+                        decoration: const InputDecoration(
+                          hintText: '输入单词（如 consolidate）',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _addingVocab ? null : _lookupAndAddVocab,
+                      child: Text(_addingVocab ? '处理中...' : '查词并加入生词本'),
+                    ),
+                  ],
                 ),
               ],
             ),
