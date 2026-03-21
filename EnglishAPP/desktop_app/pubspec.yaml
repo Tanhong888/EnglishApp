@@ -1,4 +1,4 @@
-﻿name: englishapp_desktop
+name: englishapp_desktop
 publish_to: "none"
 version: 0.1.0+1
 
@@ -13,6 +13,7 @@ dependencies:
   go_router: ^14.8.1
   google_fonts: ^6.3.1
   shared_preferences: ^2.5.3
+  just_audio: ^0.9.43
 
 dev_dependencies:
   flutter_test:

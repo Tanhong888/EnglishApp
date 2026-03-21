@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../../core/state/session_controller.dart';
 
@@ -22,17 +25,38 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   String _audioStatus = 'pending';
   final TextEditingController _wordController = TextEditingController();
   final Set<String> _addedWords = <String>{};
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  StreamSubscription<PlayerState>? _playerStateSub;
+  String? _articleAudioUrl;
+  String? _loadedAudioUrl;
+  bool _isAudioLoading = false;
+  bool _isAudioPlaying = false;
 
   int get _articleId => int.tryParse(widget.articleId) ?? 0;
 
   @override
   void initState() {
     super.initState();
+    _playerStateSub = _audioPlayer.playerStateStream.listen((state) {
+      if (!mounted) return;
+      final playing = state.playing;
+      final isLoading =
+          state.processingState == ProcessingState.loading || state.processingState == ProcessingState.buffering;
+      setState(() {
+        _isAudioPlaying = playing;
+        _isAudioLoading = isLoading;
+        if (state.processingState == ProcessingState.completed) {
+          _isAudioPlaying = false;
+        }
+      });
+    });
     _future = _loadData();
   }
 
   @override
   void dispose() {
+    _playerStateSub?.cancel();
+    unawaited(_audioPlayer.dispose());
     _wordController.dispose();
     super.dispose();
   }
@@ -46,6 +70,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final audio = await publicApi.get('/articles/${widget.articleId}/audio');
     final audioData = (audio['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     _audioStatus = audioData['status']?.toString() ?? 'pending';
+    _articleAudioUrl = audioData['article_audio_url']?.toString();
 
     Map<String, dynamic> analyses = <String, dynamic>{'items': <Map<String, dynamic>>[]};
     try {
@@ -372,6 +397,41 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 
+  Future<void> _toggleFullAudioPlayback() async {
+    if (_audioStatus != 'ready' || _articleAudioUrl == null || _articleAudioUrl!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('音频暂不可播放')));
+      return;
+    }
+
+    if (_isAudioLoading) {
+      return;
+    }
+
+    setState(() {
+      _isAudioLoading = true;
+    });
+
+    try {
+      if (_loadedAudioUrl != _articleAudioUrl) {
+        await _audioPlayer.setUrl(_articleAudioUrl!);
+        _loadedAudioUrl = _articleAudioUrl;
+      }
+
+      if (_audioPlayer.playing) {
+        await _audioPlayer.pause();
+      } else {
+        await _audioPlayer.play();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isAudioLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('音频播放失败：$e')));
+    }
+  }
+
   Future<void> _toggleFavorite() async {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
@@ -652,14 +712,12 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
             children: [
               if (_audioStatus != 'failed')
                 OutlinedButton(
-                  onPressed: _audioStatus == 'ready'
-                      ? () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Windows 端全文播放即将接入')),
-                          );
-                        }
-                      : null,
-                  child: Text(_audioStatus == 'ready' ? '全文播放' : '音频生成中'),
+                  onPressed: _audioStatus == 'ready' && !_isAudioLoading ? _toggleFullAudioPlayback : null,
+                  child: Text(
+                    _audioStatus == 'ready'
+                        ? (_isAudioLoading ? '加载音频...' : (_isAudioPlaying ? '暂停播放' : '全文播放'))
+                        : '音频生成中',
+                  ),
                 ),
               OutlinedButton(
                 onPressed: () => context.go('/articles/${widget.articleId}/analysis'),
