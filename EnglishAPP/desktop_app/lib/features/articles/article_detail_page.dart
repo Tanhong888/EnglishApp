@@ -47,6 +47,14 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final audioData = (audio['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     _audioStatus = audioData['status']?.toString() ?? 'pending';
 
+    Map<String, dynamic> analyses = <String, dynamic>{'items': <Map<String, dynamic>>[]};
+    try {
+      final analysesResp = await publicApi.get('/articles/${widget.articleId}/sentence-analyses');
+      analyses = (analysesResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    } catch (_) {
+      analyses = <String, dynamic>{'items': <Map<String, dynamic>>[]};
+    }
+
     if (session.isAuthenticated) {
       try {
         final favoriteStatus = await authApi.get(
@@ -65,6 +73,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     return {
       'detail': detail,
       'audio': audio,
+      'analyses': analyses,
     };
   }
 
@@ -282,6 +291,55 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 
+  List<Map<String, dynamic>> _matchedAnalyses(
+    String paragraphText,
+    List<Map<String, dynamic>> analysisItems,
+  ) {
+    final lowerParagraph = paragraphText.toLowerCase();
+    return analysisItems.where((item) {
+      final sentence = item['sentence']?.toString().trim().toLowerCase() ?? '';
+      return sentence.isNotEmpty && lowerParagraph.contains(sentence);
+    }).toList();
+  }
+
+  Future<void> _showAnalysisSheet(Map<String, dynamic> analysis) async {
+    if (!mounted) return;
+    final sentence = analysis['sentence']?.toString() ?? '-';
+    final translation = analysis['translation']?.toString() ?? '-';
+    final structure = analysis['structure']?.toString() ?? '-';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('重点句解析', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Text(sentence, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text('翻译：$translation'),
+              const SizedBox(height: 6),
+              Text('结构：$structure'),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('关闭'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildInteractiveParagraph(String text) {
     final tokenRegex = RegExp(r"[A-Za-z]+|[^A-Za-z]+");
     final wordRegex = RegExp(r"^[A-Za-z]+$");
@@ -441,6 +499,11 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
 
           final audioResponse = (wrapper['audio'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
           final audioData = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+          final analysesData = (wrapper['analyses'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+          final analysisRawItems = (analysesData['items'] as List?)?.cast<Map>() ?? const <Map>[];
+          final analysisItems = analysisRawItems.map((raw) => raw.cast<String, dynamic>()).toList();
+
           final paragraphs = (detailData['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
           final audioStatus = audioData['status']?.toString() ?? 'pending';
           _audioStatus = audioStatus;
@@ -478,7 +541,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                     child: Text('音频生成失败，请稍后重试或使用文本阅读。'),
                   ),
                 const SizedBox(height: 8),
-                const Text('点击蓝色单词可查看释义并加入生词本'),
+                const Text('点击蓝色单词可查看释义并加入生词本；黄色段落为重点句'),
                 const SizedBox(height: 12),
                 Expanded(
                   child: SingleChildScrollView(
@@ -490,9 +553,38 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                           if (text.isEmpty) {
                             return const SizedBox.shrink();
                           }
+
+                          final matched = _matchedAnalyses(text, analysisItems);
+                          final highlighted = matched.isNotEmpty;
+
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: _buildInteractiveParagraph(text),
+                            child: Container(
+                              width: double.infinity,
+                              decoration: highlighted
+                                  ? BoxDecoration(
+                                      color: Colors.amber.shade50,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: Colors.amber.shade200),
+                                    )
+                                  : null,
+                              padding: highlighted
+                                  ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+                                  : EdgeInsets.zero,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (highlighted)
+                                    TextButton.icon(
+                                      onPressed: () => _showAnalysisSheet(matched.first),
+                                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                                      icon: const Icon(Icons.auto_awesome, size: 16),
+                                      label: Text('重点句解析（${matched.length}）'),
+                                    ),
+                                  _buildInteractiveParagraph(text),
+                                ],
+                              ),
+                            ),
                           );
                         }),
                       ],
