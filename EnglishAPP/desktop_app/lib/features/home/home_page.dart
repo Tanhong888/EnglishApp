@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -22,9 +22,28 @@ class _HomePageState extends ConsumerState<HomePage> {
     _future = _loadData();
   }
 
-  Future<Map<String, dynamic>> _loadData() {
-    final api = ref.read(apiClientProvider);
-    return api.get('/home/recommendations');
+  Future<Map<String, dynamic>> _loadData() async {
+    final publicApi = ref.read(apiClientProvider);
+    final authApi = ref.read(authApiProvider);
+    final session = ref.read(sessionProvider);
+
+    final recommendations = await publicApi.get('/home/recommendations');
+
+    var recentItems = <Map<String, dynamic>>[];
+    if (session.isAuthenticated) {
+      try {
+        final recentResponse = await authApi.get('/reading/recent', requiresAuth: true);
+        final recentList = (recentResponse['data'] as List?)?.cast<Map>() ?? const <Map>[];
+        recentItems = recentList.map((raw) => raw.cast<String, dynamic>()).toList();
+      } catch (_) {
+        recentItems = <Map<String, dynamic>>[];
+      }
+    }
+
+    return {
+      'recommendations': recommendations,
+      'recent_items': recentItems,
+    };
   }
 
   Future<void> _refresh() async {
@@ -32,6 +51,15 @@ class _HomePageState extends ConsumerState<HomePage> {
       _future = _loadData();
     });
     await _future;
+  }
+
+  String _formatTime(String? raw) {
+    if (raw == null || raw.isEmpty) return '-';
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return raw;
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.month}/${dt.day} $hh:$mm';
   }
 
   @override
@@ -61,10 +89,15 @@ class _HomePageState extends ConsumerState<HomePage> {
               );
             }
 
-            final data = ((snapshot.data ?? const <String, dynamic>{})['data'] as Map?)?.cast<String, dynamic>() ??
-                <String, dynamic>{};
-            final today = (data['today'] as List?)?.cast<Map>() ?? const <Map>[];
-            final quickEntries = (data['quick_entries'] as List?)?.cast<String>() ?? const <String>[];
+            final wrapper = snapshot.data ?? const <String, dynamic>{};
+            final recommendationResponse =
+                (wrapper['recommendations'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            final recommendationData =
+                (recommendationResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            final today = (recommendationData['today'] as List?)?.cast<Map>() ?? const <Map>[];
+            final quickEntries = (recommendationData['quick_entries'] as List?)?.cast<String>() ?? const <String>[];
+            final recentItems = (wrapper['recent_items'] as List?)?.cast<Map<String, dynamic>>() ??
+                const <Map<String, dynamic>>[];
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -87,6 +120,29 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                   );
                 }),
+                const SizedBox(height: 16),
+                const Text('最近阅读', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                if (recentItems.isEmpty)
+                  const Card(
+                    child: ListTile(
+                      title: Text('暂无最近阅读'),
+                      subtitle: Text('登录后阅读文章，这里会自动显示'),
+                    ),
+                  ),
+                ...recentItems.take(3).map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Card(
+                      child: ListTile(
+                        title: Text(item['title']?.toString() ?? '-'),
+                        subtitle: Text('上次阅读 ${_formatTime(item['last_read_at']?.toString())}'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () => context.go('/articles/${item['article_id']}'),
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 const Text('快捷入口', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
@@ -122,4 +178,3 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 }
-

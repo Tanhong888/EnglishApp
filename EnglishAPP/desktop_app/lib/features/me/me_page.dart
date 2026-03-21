@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,21 +18,51 @@ class _MePageState extends ConsumerState<MePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future ??= _loadStats();
+    _future ??= _loadDashboard();
   }
 
-  Future<Map<String, dynamic>> _loadStats() {
+  Future<Map<String, dynamic>> _loadDashboard() async {
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
-      return Future.value({'data': <String, dynamic>{}});
+      return {
+        'stats': <String, dynamic>{},
+        'learning_records': <Map<String, dynamic>>[],
+        'recent_reading': <Map<String, dynamic>>[],
+      };
     }
+
     final api = ref.read(authApiProvider);
-    return api.get('/me/stats', requiresAuth: true);
+    final statsResp = await api.get('/me/stats', requiresAuth: true);
+    final stats = (statsResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+
+    var learningRecords = <Map<String, dynamic>>[];
+    try {
+      final recordsResp = await api.get('/me/learning-records', requiresAuth: true);
+      final recordsData = (recordsResp['data'] as List?)?.cast<Map>() ?? const <Map>[];
+      learningRecords = recordsData.map((raw) => raw.cast<String, dynamic>()).toList();
+    } catch (_) {
+      learningRecords = <Map<String, dynamic>>[];
+    }
+
+    var recentReading = <Map<String, dynamic>>[];
+    try {
+      final recentResp = await api.get('/reading/recent', requiresAuth: true);
+      final recentData = (recentResp['data'] as List?)?.cast<Map>() ?? const <Map>[];
+      recentReading = recentData.map((raw) => raw.cast<String, dynamic>()).toList();
+    } catch (_) {
+      recentReading = <Map<String, dynamic>>[];
+    }
+
+    return {
+      'stats': stats,
+      'learning_records': learningRecords,
+      'recent_reading': recentReading,
+    };
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = _loadStats();
+      _future = _loadDashboard();
     });
     await _future;
   }
@@ -73,6 +103,15 @@ class _MePageState extends ConsumerState<MePage> {
     }
   }
 
+  String _formatTime(String? raw) {
+    if (raw == null || raw.isEmpty) return '-';
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return raw;
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.month}/${dt.day} $hh:$mm';
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
@@ -102,8 +141,12 @@ class _MePageState extends ConsumerState<MePage> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final data = ((snapshot.data ?? const <String, dynamic>{})['data'] as Map?)?.cast<String, dynamic>() ??
-                <String, dynamic>{};
+            final data = snapshot.data ?? const <String, dynamic>{};
+            final stats = (data['stats'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            final learningRecords =
+                (data['learning_records'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+            final recentReading =
+                (data['recent_reading'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -116,14 +159,46 @@ class _MePageState extends ConsumerState<MePage> {
                       children: [
                         Text('你好，${session.user?['nickname'] ?? '学习者'}', style: const TextStyle(fontSize: 18)),
                         const SizedBox(height: 8),
-                        Text('累计阅读 ${data['read_articles'] ?? 0} 篇'),
+                        Text('累计阅读 ${stats['read_articles'] ?? 0} 篇'),
                         const SizedBox(height: 6),
-                        Text('累计学习 ${data['study_days'] ?? 0} 天'),
+                        Text('累计学习 ${stats['study_days'] ?? 0} 天'),
                         const SizedBox(height: 6),
-                        Text('生词收藏 ${data['vocab_count'] ?? 0} 个'),
+                        Text('生词收藏 ${stats['vocab_count'] ?? 0} 个'),
                         const SizedBox(height: 6),
-                        Text('完读率 ${(data['completion_rate'] ?? 0).toString()}'),
+                        Text('完读率 ${(stats['completion_rate'] ?? 0).toString()}'),
                       ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('最近学习记录', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                if (learningRecords.isEmpty)
+                  const Card(
+                    child: ListTile(title: Text('暂无学习记录')),
+                  ),
+                ...learningRecords.take(5).map(
+                  (item) => Card(
+                    child: ListTile(
+                      title: Text(item['date']?.toString() ?? '-'),
+                      subtitle: Text('阅读 ${item['articles'] ?? 0} 篇 · 约 ${item['minutes'] ?? 0} 分钟'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('最近阅读', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                if (recentReading.isEmpty)
+                  const Card(
+                    child: ListTile(title: Text('暂无最近阅读')),
+                  ),
+                ...recentReading.take(5).map(
+                  (item) => Card(
+                    child: ListTile(
+                      title: Text(item['title']?.toString() ?? '-'),
+                      subtitle: Text('上次阅读 ${_formatTime(item['last_read_at']?.toString())}'),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () => context.go('/articles/${item['article_id']}'),
                     ),
                   ),
                 ),
