@@ -254,3 +254,60 @@ def test_article_audio_failed_contract(client: TestClient) -> None:
     assert data['status'] == 'failed'
     assert data['article_audio_url'] is None
     assert data['retry_hint'] == '稍后重试'
+
+
+def test_me_favorites_pagination_contract(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    client.post('/api/v1/articles/1/favorite', headers=headers)
+    client.post('/api/v1/articles/2/favorite', headers=headers)
+    client.post('/api/v1/articles/3/favorite', headers=headers)
+
+    page_1 = client.get('/api/v1/me/favorites', params={'page': 1, 'size': 1}, headers=headers)
+    page_2 = client.get('/api/v1/me/favorites', params={'page': 2, 'size': 1}, headers=headers)
+
+    assert page_1.status_code == 200
+    assert page_2.status_code == 200
+
+    data_1 = page_1.json()['data']
+    data_2 = page_2.json()['data']
+
+    assert data_1['page'] == 1
+    assert data_1['size'] == 1
+    assert data_1['total'] >= 2
+    assert data_1['has_next'] is True
+    assert len(data_1['items']) == 1
+
+    assert data_2['page'] == 2
+    assert data_2['size'] == 1
+    assert len(data_2['items']) == 1
+
+
+
+def test_learning_records_time_filters(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    progress_response = client.post(
+        '/api/v1/reading/progress',
+        json={'article_id': 1, 'paragraph_index': 1},
+        headers=headers,
+    )
+    assert progress_response.status_code == 200
+
+    all_response = client.get('/api/v1/me/learning-records', headers=headers)
+    assert all_response.status_code == 200
+    all_items = all_response.json()['data']
+    assert isinstance(all_items, list)
+    assert len(all_items) >= 1
+
+    recent_response = client.get('/api/v1/me/learning-records', params={'days': 1}, headers=headers)
+    assert recent_response.status_code == 200
+    recent_items = recent_response.json()['data']
+    assert isinstance(recent_items, list)
+    assert len(recent_items) >= 1
+
+    future_response = client.get('/api/v1/me/learning-records', params={'date_from': '2999-01-01'}, headers=headers)
+    assert future_response.status_code == 200
+    assert future_response.json()['data'] == []

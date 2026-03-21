@@ -14,11 +14,25 @@ class MePage extends ConsumerStatefulWidget {
 
 class _MePageState extends ConsumerState<MePage> {
   Future<Map<String, dynamic>>? _future;
+  String _learningRange = '30d';
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _future ??= _loadDashboard();
+  }
+
+  Map<String, String>? _learningRecordQuery() {
+    switch (_learningRange) {
+      case '7d':
+        return {'days': '7'};
+      case '30d':
+        return {'days': '30'};
+      case 'all':
+        return null;
+      default:
+        return {'days': '30'};
+    }
   }
 
   Future<Map<String, dynamic>> _loadDashboard() async {
@@ -37,7 +51,11 @@ class _MePageState extends ConsumerState<MePage> {
 
     var learningRecords = <Map<String, dynamic>>[];
     try {
-      final recordsResp = await api.get('/me/learning-records', requiresAuth: true);
+      final recordsResp = await api.get(
+        '/me/learning-records',
+        requiresAuth: true,
+        query: _learningRecordQuery(),
+      );
       final recordsData = (recordsResp['data'] as List?)?.cast<Map>() ?? const <Map>[];
       learningRecords = recordsData.map((raw) => raw.cast<String, dynamic>()).toList();
     } catch (_) {
@@ -65,6 +83,14 @@ class _MePageState extends ConsumerState<MePage> {
       _future = _loadDashboard();
     });
     await _future;
+  }
+
+  void _changeLearningRange(String range) {
+    if (_learningRange == range) return;
+    setState(() {
+      _learningRange = range;
+      _future = _loadDashboard();
+    });
   }
 
   Future<void> _logout() async {
@@ -173,11 +199,33 @@ class _MePageState extends ConsumerState<MePage> {
                 const SizedBox(height: 12),
                 const Text('最近学习记录', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('近7天'),
+                      selected: _learningRange == '7d',
+                      onSelected: (_) => _changeLearningRange('7d'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('近30天'),
+                      selected: _learningRange == '30d',
+                      onSelected: (_) => _changeLearningRange('30d'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('全部'),
+                      selected: _learningRange == 'all',
+                      onSelected: (_) => _changeLearningRange('all'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 if (learningRecords.isEmpty)
                   const Card(
-                    child: ListTile(title: Text('暂无学习记录')),
+                    child: ListTile(title: Text('当前筛选下暂无学习记录')),
                   ),
-                ...learningRecords.take(5).map(
+                ...learningRecords.take(8).map(
                   (item) => Card(
                     child: ListTile(
                       title: Text(item['date']?.toString() ?? '-'),

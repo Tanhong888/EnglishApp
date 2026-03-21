@@ -1,4 +1,6 @@
-﻿from fastapi import APIRouter, Depends, Query
+from datetime import UTC, date, datetime, timedelta
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -57,13 +59,32 @@ def me_stats(current_user: User = Depends(get_current_user), db: Session = Depen
 
 
 @router.get('/learning-records')
-def learning_records(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
-    rows = db.execute(
+def learning_records(
+    days: int | None = Query(default=None, ge=1, le=3650),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    query = (
         select(func.date(UserReadingProgress.last_read_at), func.count(UserReadingProgress.id))
         .where(UserReadingProgress.user_id == current_user.id)
-        .group_by(func.date(UserReadingProgress.last_read_at))
+    )
+
+    if days is not None:
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+        query = query.where(UserReadingProgress.last_read_at >= cutoff)
+
+    if date_from is not None:
+        query = query.where(UserReadingProgress.last_read_at >= datetime.combine(date_from, datetime.min.time()))
+
+    if date_to is not None:
+        query = query.where(UserReadingProgress.last_read_at <= datetime.combine(date_to, datetime.max.time()))
+
+    rows = db.execute(
+        query.group_by(func.date(UserReadingProgress.last_read_at))
         .order_by(func.date(UserReadingProgress.last_read_at).desc())
-        .limit(30)
+        .limit(60)
     ).all()
 
     records = [{'date': str(date_value), 'articles': count_value, 'minutes': count_value * 8} for date_value, count_value in rows]
