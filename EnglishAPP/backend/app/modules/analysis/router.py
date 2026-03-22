@@ -1,22 +1,37 @@
-﻿from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.response import success
+from app.db.models import Article, SentenceAnalysis
+from app.db.session import get_db
 
 router = APIRouter()
 
 
 @router.get("/{article_id}/sentence-analyses")
-def sentence_analyses(article_id: int) -> dict:
+def sentence_analyses(article_id: int, db: Session = Depends(get_db)) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail="article not found")
+
+    rows = db.scalars(
+        select(SentenceAnalysis)
+        .where(SentenceAnalysis.article_id == article_id)
+        .order_by(SentenceAnalysis.sentence_index.asc(), SentenceAnalysis.id.asc())
+    ).all()
+
     return success(
         {
             "article_id": article_id,
             "items": [
                 {
-                    "sentence_id": 301,
-                    "sentence": "Sleep plays a major role in memory consolidation.",
-                    "translation": "睡眠在记忆巩固中起重要作用。",
-                    "structure": "主语 + 谓语 + 介词短语",
+                    "sentence_id": row.id,
+                    "sentence": row.sentence,
+                    "translation": row.translation,
+                    "structure": row.structure,
                 }
+                for row in rows
             ],
         }
     )

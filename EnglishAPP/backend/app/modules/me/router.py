@@ -63,6 +63,8 @@ def learning_records(
     days: int | None = Query(default=None, ge=1, le=3650),
     date_from: date | None = None,
     date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=50),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -84,12 +86,18 @@ def learning_records(
     rows = db.execute(
         query.group_by(func.date(UserReadingProgress.last_read_at))
         .order_by(func.date(UserReadingProgress.last_read_at).desc())
-        .limit(60)
+        .limit(365)
     ).all()
 
-    records = [{'date': str(date_value), 'articles': count_value, 'minutes': count_value * 8} for date_value, count_value in rows]
-    return success(records)
-
+    records = [
+        {
+            'date': str(date_value),
+            'articles': count_value,
+            'minutes': count_value * 8,
+        }
+        for date_value, count_value in rows
+    ]
+    return success(paginate(records, page=page, size=size))
 
 @router.get('/vocab')
 def me_vocab(

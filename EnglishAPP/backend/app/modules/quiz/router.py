@@ -1,10 +1,13 @@
-import itertools
-import threading
+from collections import defaultdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.response import success
+from app.db.models import Quiz, QuizOption, QuizQuestion, UserQuizAnswer, UserQuizAttempt
+from app.db.session import get_db
 
 router = APIRouter()
 
@@ -14,142 +17,156 @@ class QuizSubmitRequest(BaseModel):
     answers: list[dict]
 
 
-_QUIZ_BANK: dict[int, list[dict]] = {
-    1: [
-        {
-            'question_id': 101,
-            'stem': 'What does the article emphasize about sleep?',
-            'options': ['Memory consolidation', 'Faster city traffic', 'Exam registration', 'Plant genetics'],
-            'answer': 'Memory consolidation',
-        },
-        {
-            'question_id': 102,
-            'stem': 'Which behavior is linked with better performance in the article?',
-            'options': ['Staying up late daily', 'Better sleep quality', 'Skipping breakfast', 'Longer social media use'],
-            'answer': 'Better sleep quality',
-        },
-        {
-            'question_id': 103,
-            'stem': 'The article mainly belongs to which topic?',
-            'options': ['Health', 'Finance', 'History', 'Travel'],
-            'answer': 'Health',
-        },
-    ],
-    2: [
-        {
-            'question_id': 201,
-            'stem': 'Urban trees can directly improve what?',
-            'options': ['Air quality', 'Wi-Fi speed', 'Housing price policy', 'Road tolls'],
-            'answer': 'Air quality',
-        },
-        {
-            'question_id': 202,
-            'stem': 'Which benefit is mentioned for city residents?',
-            'options': ['Mental health support', 'Free public transport', 'Higher taxes', 'Longer workdays'],
-            'answer': 'Mental health support',
-        },
-        {
-            'question_id': 203,
-            'stem': 'Trees in dense cities also help with:',
-            'options': ['Noise reduction', 'Exam grading', 'Cloud storage', 'Flight delays'],
-            'answer': 'Noise reduction',
-        },
-    ],
-    3: [
-        {
-            'question_id': 301,
-            'stem': 'The article discusses AI and which social concern?',
-            'options': ['Education equity', 'Movie tickets', 'Sports ranking', 'Restaurant tips'],
-            'answer': 'Education equity',
-        },
-        {
-            'question_id': 302,
-            'stem': 'In this context, equity most closely means:',
-            'options': ['Fair access', 'Higher difficulty', 'Faster machines', 'Lower attendance'],
-            'answer': 'Fair access',
-        },
-        {
-            'question_id': 303,
-            'stem': 'Which group is most likely to benefit from equitable AI education tools?',
-            'options': ['Underserved learners', 'Only engineers', 'Only teachers', 'Only administrators'],
-            'answer': 'Underserved learners',
-        },
-    ],
-}
+def _load_quiz_questions(db: Session, article_id: int) -> list[tuple[QuizQuestion, list[QuizOption]]]:
+    quiz = db.scalar(select(Quiz).where(Quiz.article_id == article_id))
+    if quiz is None:
+        return []
 
-_ATTEMPT_ID = itertools.count(7001)
-_ATTEMPT_STORE: dict[int, dict] = {}
-_ATTEMPT_LOCK = threading.Lock()
+    questions = db.scalars(
+        select(QuizQuestion)
+        .where(QuizQuestion.quiz_id == quiz.id)
+        .order_by(QuizQuestion.question_index.asc(), QuizQuestion.id.asc())
+    ).all()
+    if not questions:
+        return []
+
+    question_ids = [q.id for q in questions]
+    option_rows = db.scalars(
+        select(QuizOption)
+        .where(QuizOption.question_id.in_(question_ids))
+        .order_by(QuizOption.question_id.asc(), QuizOption.option_index.asc(), QuizOption.id.asc())
+    ).all()
+
+    options_by_question: dict[int, list[QuizOption]] = defaultdict(list)
+    for option in option_rows:
+        options_by_question[option.question_id].append(option)
+
+    return [(question, options_by_question.get(question.id, [])) for question in questions]
 
 
-def _question_public_view(question: dict) -> dict:
-    return {
-        'question_id': question['question_id'],
-        'stem': question['stem'],
-        'options': question['options'],
-    }
+def _normalize_selected_option(raw_answer: object, options: list[QuizOption]) -> str | None:
+    if raw_answer is None:
+        return None
+
+    if isinstance(raw_answer, str):
+        normalized = raw_answer.strip()
+        return normalized or None
+
+    if isinstance(raw_answer, (int, float)):
+        option_id = int(raw_answer)
+        by_id = next((opt for opt in options if opt.id == option_id), None)
+        if by_id is not None:
+            return by_id.content
+
+        by_index = next((opt for opt in options if opt.option_index == option_id), None)
+        if by_index is not None:
+            return by_index.content
+
+    return str(raw_answer)
 
 
 @router.get('/articles/{article_id}/quiz')
-def get_article_quiz(article_id: int) -> dict:
-    questions = _QUIZ_BANK.get(article_id)
-    if not questions:
+def get_article_quiz(article_id: int, db: Session = Depends(get_db)) -> dict:
+    question_bundle = _load_quiz_questions(db, article_id)
+    if not question_bundle:
         raise HTTPException(status_code=404, detail='quiz not found for article')
 
     return success(
         {
             'article_id': article_id,
-            'questions': [_question_public_view(question) for question in questions],
+            'questions': [
+                {
+                    'question_id': question.id,
+                    'stem': question.stem,
+                    'options': [option.content for option in options],
+                }
+                for question, options in question_bundle
+            ],
         }
     )
 
 
 @router.post('/quiz/submit')
-def submit_quiz(payload: QuizSubmitRequest) -> dict:
-    questions = _QUIZ_BANK.get(payload.article_id)
-    if not questions:
+def submit_quiz(payload: QuizSubmitRequest, db: Session = Depends(get_db)) -> dict:
+    question_bundle = _load_quiz_questions(db, payload.article_id)
+    if not question_bundle:
         raise HTTPException(status_code=404, detail='quiz not found for article')
 
-    answer_map: dict[int, str] = {}
+    answer_map: dict[int, object] = {}
     for row in payload.answers:
         question_id_raw = row.get('question_id')
-        answer_raw = row.get('answer')
-        if question_id_raw is None or answer_raw is None:
+        if question_id_raw is None:
             continue
         try:
-            answer_map[int(question_id_raw)] = str(answer_raw)
+            question_id = int(question_id_raw)
         except (TypeError, ValueError):
             continue
+        answer_map[question_id] = row.get('answer')
 
     wrong_items: list[int] = []
     correct_count = 0
-    for idx, question in enumerate(questions, start=1):
-        selected = answer_map.get(question['question_id'])
-        if selected == question['answer']:
+    answer_rows: list[UserQuizAnswer] = []
+
+    for question, options in question_bundle:
+        selected = _normalize_selected_option(answer_map.get(question.id), options)
+        correct_option = next((opt for opt in options if opt.is_correct), None)
+        is_correct = correct_option is not None and selected == correct_option.content
+
+        if is_correct:
             correct_count += 1
         else:
-            wrong_items.append(idx)
+            wrong_items.append(question.question_index)
 
-    total_count = len(questions)
+        answer_rows.append(
+            UserQuizAnswer(
+                question_id=question.id,
+                selected_option=selected,
+                is_correct=is_correct,
+            )
+        )
+
+    total_count = len(question_bundle)
     accuracy = round(correct_count / total_count, 2) if total_count > 0 else 0.0
 
-    with _ATTEMPT_LOCK:
-        attempt_id = next(_ATTEMPT_ID)
-        _ATTEMPT_STORE[attempt_id] = {
-            'attempt_id': attempt_id,
-            'article_id': payload.article_id,
-            'correct_count': correct_count,
-            'total_count': total_count,
-            'accuracy': accuracy,
-            'wrong_items': wrong_items,
-        }
+    attempt = UserQuizAttempt(
+        article_id=payload.article_id,
+        correct_count=correct_count,
+        total_count=total_count,
+        accuracy=accuracy,
+    )
+    db.add(attempt)
+    db.flush()
 
-    return success({'attempt_id': attempt_id, 'article_id': payload.article_id, 'accuracy': accuracy})
+    for answer in answer_rows:
+        answer.attempt_id = attempt.id
+    db.add_all(answer_rows)
+    db.commit()
+
+    return success({'attempt_id': attempt.id, 'article_id': payload.article_id, 'accuracy': accuracy})
 
 
 @router.get('/quiz/attempts/{attempt_id}')
-def get_attempt(attempt_id: int) -> dict:
-    attempt = _ATTEMPT_STORE.get(attempt_id)
+def get_attempt(attempt_id: int, db: Session = Depends(get_db)) -> dict:
+    attempt = db.get(UserQuizAttempt, attempt_id)
     if attempt is None:
         raise HTTPException(status_code=404, detail='attempt not found')
-    return success(attempt)
+
+    wrong_rows = db.execute(
+        select(QuizQuestion.question_index)
+        .join(UserQuizAnswer, UserQuizAnswer.question_id == QuizQuestion.id)
+        .where(UserQuizAnswer.attempt_id == attempt_id, UserQuizAnswer.is_correct.is_(False))
+        .order_by(QuizQuestion.question_index.asc(), QuizQuestion.id.asc())
+    ).all()
+
+    wrong_items = [row[0] for row in wrong_rows]
+
+    return success(
+        {
+            'attempt_id': attempt.id,
+            'article_id': attempt.article_id,
+            'correct_count': attempt.correct_count,
+            'total_count': attempt.total_count,
+            'accuracy': attempt.accuracy,
+            'wrong_items': wrong_items,
+        }
+    )
