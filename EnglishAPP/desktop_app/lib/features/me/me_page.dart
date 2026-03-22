@@ -240,7 +240,7 @@ class _MePageState extends ConsumerState<MePage> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () => context.go('/me/analytics'),
+                            onPressed: () => context.push('/me/analytics'),
                             child: const Text('查看行为详情'),
                           ),
                         ),
@@ -289,7 +289,7 @@ class _MePageState extends ConsumerState<MePage> {
                   child: ListTile(
                     title: const Text('查看全部学习记录'),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: () => context.go('/me/learning-records'),
+                    onTap: () => context.push('/me/learning-records'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -305,7 +305,7 @@ class _MePageState extends ConsumerState<MePage> {
                       title: Text(item['title']?.toString() ?? '-'),
                       subtitle: Text('上次阅读 ${_formatTime(item['last_read_at']?.toString())}'),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                      onTap: () => context.go('/articles/${item['article_id']}'),
+                      onTap: () => context.push('/articles/${item['article_id']}'),
                     ),
                   ),
                 ),
@@ -314,7 +314,7 @@ class _MePageState extends ConsumerState<MePage> {
                   child: ListTile(
                     title: const Text('收藏文章'),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: () => context.go('/me/favorites'),
+                    onTap: () => context.push('/me/favorites'),
                   ),
                 ),
                 const SizedBox(height: 12),

@@ -138,7 +138,7 @@ class _FavoritesPageState extends ConsumerState<FavoritesPage> {
                               title: Text(item['title']?.toString() ?? '-'),
                               subtitle: Text('收藏于 ${_formatTime(item['favorited_at']?.toString())}'),
                               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => context.go('/articles/${item['article_id']}'),
+                              onTap: () => context.push('/articles/${item['article_id']}'),
                             ),
                           ),
                         ),

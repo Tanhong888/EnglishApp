@@ -115,7 +115,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                           '${item['stage'] ?? '-'} · Level ${item['level'] ?? '-'} · ${item['reading_minutes'] ?? '-'} 分钟',
                         ),
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.go('/articles/${item['id']}'),
+                        onTap: () => context.push('/articles/${item['id']}'),
                       ),
                     ),
                   );
@@ -138,7 +138,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                         title: Text(item['title']?.toString() ?? '-'),
                         subtitle: Text('上次阅读 ${_formatTime(item['last_read_at']?.toString())}'),
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.go('/articles/${item['article_id']}'),
+                        onTap: () => context.push('/articles/${item['article_id']}'),
                       ),
                     ),
                   ),

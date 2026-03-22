@@ -147,7 +147,7 @@ class _ArticlesPageState extends ConsumerState<ArticlesPage> {
                           '${item['stage'] ?? '-'} · Level ${item['level'] ?? '-'} · ${item['topic'] ?? '-'}',
                         ),
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.go('/articles/${item['id']}'),
+                        onTap: () => context.push('/articles/${item['id']}'),
                       ),
                     ),
                   );

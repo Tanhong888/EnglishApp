@@ -111,7 +111,7 @@ class _QuizPageState extends ConsumerState<QuizPage> {
       );
 
       if (!mounted) return;
-      context.go('/quiz/attempts/$attemptId/result');
+      context.push('/quiz/attempts/$attemptId/result');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('提交失败：$e')));

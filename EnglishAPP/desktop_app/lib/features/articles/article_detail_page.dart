@@ -930,11 +930,11 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                   ),
                 ),
               OutlinedButton(
-                onPressed: () => context.go('/articles/${widget.articleId}/analysis'),
+                onPressed: () => context.push('/articles/${widget.articleId}/analysis'),
                 child: const Text('句子解析'),
               ),
               FilledButton(
-                onPressed: () => context.go('/articles/${widget.articleId}/quiz'),
+                onPressed: () => context.push('/articles/${widget.articleId}/quiz'),
                 child: const Text('开始小测'),
               ),
             ],
