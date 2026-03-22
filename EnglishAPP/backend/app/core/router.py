@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+﻿from fastapi import APIRouter
 
 from app.modules.analysis.router import router as analysis_router
 from app.modules.analytics.router import router as analytics_router
@@ -11,6 +11,7 @@ from app.modules.quiz.router import router as quiz_router
 from app.modules.reading.router import router as reading_router
 from app.modules.users.router import router as users_router
 from app.modules.vocab.router import router as vocab_router
+from app.modules.web_articles.router import router as web_articles_router
 from app.modules.words.router import router as words_router
 
 api_router = APIRouter()
@@ -26,4 +27,4 @@ api_router.include_router(analysis_router, prefix='/articles', tags=['analysis']
 api_router.include_router(analytics_router, prefix='/analytics', tags=['analytics'])
 api_router.include_router(quiz_router, tags=['quiz'])
 api_router.include_router(me_router, prefix='/me', tags=['me'])
-
+api_router.include_router(web_articles_router, prefix='/web-articles', tags=['web-articles'])

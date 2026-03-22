@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+﻿from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     sentry_dsn: str = ''
     sentry_traces_sample_rate: float = 0.0
     security_hsts_enabled: bool = False
+    web_article_feed_urls: str = (
+        'https://feeds.bbci.co.uk/news/world/rss.xml,'
+        'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml,'
+        'https://feeds.bbci.co.uk/news/technology/rss.xml,'
+        'https://feeds.npr.org/1001/rss.xml,'
+        'https://feeds.npr.org/1019/rss.xml'
+    )
+    web_article_request_timeout_seconds: int = 8
 
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 

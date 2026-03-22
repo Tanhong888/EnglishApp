@@ -1,8 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/api_client.dart';
 import '../../core/state/session_controller.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
@@ -120,6 +119,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                   );
                 }),
+                const SizedBox(height: 16),
+                Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.language)),
+                    title: const Text('在线英文文章搜索'),
+                    subtitle: const Text('自动聚合公开英文新闻源，可按关键词搜索最新阅读素材'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () => context.push('/web-articles'),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 const Text('最近阅读', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),

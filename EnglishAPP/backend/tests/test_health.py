@@ -704,3 +704,117 @@ def test_quiz_submit_rate_limit(client: TestClient) -> None:
 
 
 
+
+
+def test_web_article_search_contract(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    web_articles_module = importlib.import_module('app.modules.web_articles.router')
+
+    feeds = {
+        'https://feed-a.example/rss.xml': """<?xml version='1.0'?>
+        <rss version='2.0'>
+          <channel>
+            <title>BBC Tech</title>
+            <item>
+              <title>Sleep science improves learning</title>
+              <link>https://example.com/a1</link>
+              <description>Students learn English faster with better sleep.</description>
+              <pubDate>Sat, 21 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>AI fairness in schools</title>
+              <link>https://example.com/a2</link>
+              <description>Equity and education remain key topics.</description>
+              <pubDate>Fri, 20 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """,
+        'https://feed-b.example/atom.xml': """<?xml version='1.0' encoding='utf-8'?>
+        <feed xmlns='http://www.w3.org/2005/Atom'>
+          <title>NPR Science</title>
+          <entry>
+            <title>English reading habits and memory</title>
+            <link href='https://example.com/b1' />
+            <summary>Memory and reading routines can reinforce vocabulary.</summary>
+            <updated>2026-03-22T09:00:00Z</updated>
+          </entry>
+          <entry>
+            <title>Duplicate article</title>
+            <link href='https://example.com/a2' />
+            <summary>This should be deduplicated by URL.</summary>
+            <updated>2026-03-22T08:00:00Z</updated>
+          </entry>
+        </feed>
+        """,
+    }
+
+    monkeypatch.setattr(web_articles_module.settings, 'web_article_feed_urls', ','.join(feeds.keys()))
+    monkeypatch.setattr(web_articles_module, 'fetch_feed_xml', lambda url: feeds[url])
+
+    response = client.get('/api/v1/web-articles/search', params={'q': 'memory', 'page': 1, 'size': 10})
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['page'] == 1
+    assert data['size'] == 10
+    assert data['total'] == 1
+    assert data['has_next'] is False
+    assert data['sources_checked'] == 2
+    assert data['source_errors'] == []
+
+    item = data['items'][0]
+    assert item['title'] == 'English reading habits and memory'
+    assert item['source'] == 'NPR Science'
+    assert item['url'] == 'https://example.com/b1'
+    assert item['published_at'] == '2026-03-22T09:00:00+00:00'
+
+
+
+def test_web_article_search_latest_pagination_and_source_errors(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    web_articles_module = importlib.import_module('app.modules.web_articles.router')
+
+    feeds = {
+        'https://feed-a.example/rss.xml': """<?xml version='1.0'?>
+        <rss version='2.0'>
+          <channel>
+            <title>BBC World</title>
+            <item>
+              <title>Article One</title>
+              <link>https://example.com/one</link>
+              <description>Latest story one.</description>
+              <pubDate>Sun, 22 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>Article Two</title>
+              <link>https://example.com/two</link>
+              <description>Latest story two.</description>
+              <pubDate>Sat, 21 Mar 2026 12:00:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """,
+    }
+
+    def fake_fetch(url: str) -> str:
+        if url in feeds:
+            return feeds[url]
+        raise OSError('network down')
+
+    monkeypatch.setattr(
+        web_articles_module.settings,
+        'web_article_feed_urls',
+        'https://feed-a.example/rss.xml,https://feed-b.example/rss.xml',
+    )
+    monkeypatch.setattr(web_articles_module, 'fetch_feed_xml', fake_fetch)
+
+    response = client.get('/api/v1/web-articles/search', params={'page': 1, 'size': 1})
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['total'] == 2
+    assert data['has_next'] is True
+    assert len(data['items']) == 1
+    assert data['items'][0]['title'] == 'Article One'
+    assert data['source_errors'] == ['https://feed-b.example/rss.xml']

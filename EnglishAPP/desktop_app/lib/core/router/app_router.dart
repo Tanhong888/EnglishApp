@@ -6,6 +6,7 @@ import '../../features/articles/article_detail_page.dart';
 import '../../features/articles/articles_page.dart';
 import '../../features/auth/login_page.dart';
 import '../../features/home/home_page.dart';
+import '../../features/home/online_articles_page.dart';
 import '../../features/me/analytics_page.dart';
 import '../../features/me/favorites_page.dart';
 import '../../features/me/learning_records_page.dart';
@@ -25,6 +26,7 @@ class AppRouter {
       GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
       GoRoute(path: '/home', builder: (_, __) => const HomePage()),
       GoRoute(path: '/articles', builder: (_, __) => const ArticlesPage()),
+      GoRoute(path: '/web-articles', builder: (_, __) => const OnlineArticlesPage()),
       GoRoute(
         path: '/articles/:articleId',
         builder: (_, state) => ArticleDetailPage(articleId: state.pathParameters['articleId']!),
