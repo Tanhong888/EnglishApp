@@ -30,10 +30,15 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   final AudioPlayer _wordAudioPlayer = AudioPlayer();
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration?>? _durationSub;
+  Timer? _audioStatusPollTimer;
   String? _articleAudioUrl;
   String? _loadedAudioUrl;
   bool _isAudioLoading = false;
   bool _isAudioPlaying = false;
+  bool _isRefreshingAudioStatus = false;
+  Duration _currentAudioPosition = Duration.zero;
+  Duration _currentAudioDuration = Duration.zero;
   List<Map<String, dynamic>> _paragraphTimestamps = <Map<String, dynamic>>[];
   int? _currentPlayingParagraphIndex;
 
@@ -58,17 +63,28 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     });
 
     _positionSub = _audioPlayer.positionStream.listen((position) {
-      if (!mounted || _paragraphTimestamps.isEmpty) {
+      if (!mounted) {
         return;
       }
-      final matchedIndex = _matchParagraphIndexByPosition(position);
-      if (matchedIndex != _currentPlayingParagraphIndex) {
-        setState(() {
+      final matchedIndex = _paragraphTimestamps.isEmpty ? null : _matchParagraphIndexByPosition(position);
+      setState(() {
+        _currentAudioPosition = position;
+        if (matchedIndex != _currentPlayingParagraphIndex) {
           _currentPlayingParagraphIndex = matchedIndex;
-        });
-      }
+        }
+      });
     });
 
+    _durationSub = _audioPlayer.durationStream.listen((duration) {
+      if (!mounted || duration == null) {
+        return;
+      }
+      setState(() {
+        _currentAudioDuration = duration;
+      });
+    });
+
+    _startAudioStatusPolling();
     _future = _loadData();
   }
 
@@ -76,6 +92,8 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   void dispose() {
     _playerStateSub?.cancel();
     _positionSub?.cancel();
+    _durationSub?.cancel();
+    _audioStatusPollTimer?.cancel();
     unawaited(_audioPlayer.dispose());
     unawaited(_wordAudioPlayer.dispose());
     _wordController.dispose();
@@ -90,18 +108,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final detail = await publicApi.get('/articles/${widget.articleId}');
     final audio = await publicApi.get('/articles/${widget.articleId}/audio');
     final audioData = (audio['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    _audioStatus = audioData['status']?.toString() ?? 'pending';
-    _articleAudioUrl = audioData['article_audio_url']?.toString();
-    final ts = (audioData['paragraph_timestamps'] as List?)?.cast<Map>() ?? const <Map>[];
-    _paragraphTimestamps = ts
-        .map((raw) => raw.cast<String, dynamic>())
-        .where((raw) => _durationFromSecond(raw['start']) != null)
-        .toList()
-      ..sort((a, b) {
-        final aStart = _durationFromSecond(a['start']) ?? Duration.zero;
-        final bStart = _durationFromSecond(b['start']) ?? Duration.zero;
-        return aStart.compareTo(bStart);
-      });
+    _applyAudioState(audioData);
 
     Map<String, dynamic> analyses = <String, dynamic>{'items': <Map<String, dynamic>>[]};
     try {
@@ -131,6 +138,87 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       'audio': audio,
       'analyses': analyses,
     };
+  }
+
+
+  void _startAudioStatusPolling() {
+    _audioStatusPollTimer?.cancel();
+    _audioStatusPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_audioStatus == 'pending' || _audioStatus == 'processing') {
+        unawaited(_refreshAudioStatus());
+      }
+    });
+  }
+
+  List<Map<String, dynamic>> _parseParagraphTimestamps(dynamic raw) {
+    final ts = (raw as List?)?.cast<Map>() ?? const <Map>[];
+    final parsed = ts
+        .map((item) => item.cast<String, dynamic>())
+        .where((item) => _durationFromSecond(item['start']) != null)
+        .toList();
+    parsed.sort((a, b) {
+      final aStart = _durationFromSecond(a['start']) ?? Duration.zero;
+      final bStart = _durationFromSecond(b['start']) ?? Duration.zero;
+      return aStart.compareTo(bStart);
+    });
+    return parsed;
+  }
+
+  void _applyAudioState(Map<String, dynamic> audioData) {
+    final nextStatus = audioData['status']?.toString() ?? 'pending';
+    final nextUrl = audioData['article_audio_url']?.toString();
+    final nextTimestamps = _parseParagraphTimestamps(audioData['paragraph_timestamps']);
+
+    final audioUrlChanged = _articleAudioUrl != nextUrl;
+    _audioStatus = nextStatus;
+    _articleAudioUrl = nextUrl;
+    _paragraphTimestamps = nextTimestamps;
+
+    if (audioUrlChanged) {
+      _loadedAudioUrl = null;
+      _currentAudioPosition = Duration.zero;
+      _currentAudioDuration = Duration.zero;
+      _currentPlayingParagraphIndex = null;
+      unawaited(_audioPlayer.stop());
+    }
+  }
+
+  Future<void> _refreshAudioStatus() async {
+    if (_isRefreshingAudioStatus) {
+      return;
+    }
+
+    _isRefreshingAudioStatus = true;
+    try {
+      final publicApi = ref.read(apiClientProvider);
+      final response = await publicApi.get('/articles/${widget.articleId}/audio');
+      final audioData = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _applyAudioState(audioData);
+      });
+    } catch (_) {
+      // Silent polling failure: keep current state and try again on next interval.
+    } finally {
+      _isRefreshingAudioStatus = false;
+    }
+  }
+
+  Future<void> _stopArticleAudio() async {
+    await _audioPlayer.stop();
+    if (!mounted) return;
+    setState(() {
+      _isAudioPlaying = false;
+      _isAudioLoading = false;
+      _currentAudioPosition = Duration.zero;
+      _currentPlayingParagraphIndex = null;
+    });
+  }
+
+  String _formatDuration(Duration value) {
+    final minutes = value.inMinutes;
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   List<String> _extractTopWords(List<Map> paragraphs) {
@@ -740,20 +828,26 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           final detailResponse = (wrapper['detail'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
           final detailData = (detailResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
-          final audioResponse = (wrapper['audio'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-          final audioData = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-
           final analysesData = (wrapper['analyses'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
           final analysisRawItems = (analysesData['items'] as List?)?.cast<Map>() ?? const <Map>[];
           final analysisItems = analysisRawItems.map((raw) => raw.cast<String, dynamic>()).toList();
 
           final paragraphs = (detailData['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
-          final audioStatus = audioData['status']?.toString() ?? 'pending';
-          _audioStatus = audioStatus;
+          final audioStatus = _audioStatus;
           final paragraphIndex = paragraphs.isEmpty ? 1 : paragraphs.length;
           final quickWords = _extractTopWords(paragraphs);
           final preferences = ref.watch(appPreferencesProvider);
           final readingFontSize = preferences.readingBodyFontSize;
+          final fallbackAudioDuration = _paragraphTimestamps.isNotEmpty
+              ? (_durationFromSecond(_paragraphTimestamps.last['end']) ?? Duration.zero)
+              : Duration.zero;
+          final totalAudioDuration = _currentAudioDuration > Duration.zero ? _currentAudioDuration : fallbackAudioDuration;
+          final currentAudioPosition = _currentAudioPosition > totalAudioDuration && totalAudioDuration > Duration.zero
+              ? totalAudioDuration
+              : _currentAudioPosition;
+          final audioProgress = totalAudioDuration.inMilliseconds <= 0
+              ? 0.0
+              : currentAudioPosition.inMilliseconds / totalAudioDuration.inMilliseconds;
 
           return Padding(
             padding: const EdgeInsets.all(16),
@@ -779,14 +873,69 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                   '${detailData['stage'] ?? '-'} · Level ${detailData['level'] ?? '-'} · ${detailData['reading_minutes'] ?? '-'} 分钟',
                 ),
                 const SizedBox(height: 8),
-                Text('音频状态：$audioStatus'),
-                if (audioStatus == 'failed')
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text('音频生成失败，请稍后重试或使用文本阅读。'),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: audioStatus == 'ready' ? Colors.blue.shade50 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: audioStatus == 'ready' ? Colors.blue.shade100 : Colors.grey.shade300,
+                    ),
                   ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            audioStatus == 'ready'
+                                ? Icons.graphic_eq
+                                : (audioStatus == 'failed' ? Icons.error_outline : Icons.hourglass_bottom),
+                            size: 18,
+                            color: audioStatus == 'ready' ? Colors.blue.shade700 : Colors.black54,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '朗读状态：$audioStatus',
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (audioStatus == 'pending' || audioStatus == 'processing')
+                            TextButton(
+                              onPressed: _refreshAudioStatus,
+                              child: const Text('刷新'),
+                            ),
+                        ],
+                      ),
+                      if (audioStatus == 'ready') ...[
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(value: audioProgress.clamp(0.0, 1.0)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text('进度 ${_formatDuration(currentAudioPosition)} / ${_formatDuration(totalAudioDuration)}'),
+                            const Spacer(),
+                            Text(_currentPlayingParagraphIndex == null ? '未定位段落' : '当前第 $_currentPlayingParagraphIndex 段'),
+                          ],
+                        ),
+                      ],
+                      if (audioStatus == 'failed')
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('音频生成失败，请稍后重试或使用文本阅读。'),
+                        ),
+                      if (audioStatus == 'pending' || audioStatus == 'processing')
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('正在准备朗读音频，页面会自动刷新状态。'),
+                        ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 8),
-                const Text('点击蓝色单词可查看释义并加入生词本；黄色段落为重点句'),
+                const Text('点击蓝色单词可查看释义并加入生词本；黄色段落为重点句，蓝色高亮表示当前朗读位置。'),
                 const SizedBox(height: 12),
                 Expanded(
                   child: SingleChildScrollView(
@@ -927,14 +1076,22 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (_audioStatus != 'failed')
+              OutlinedButton(
+                onPressed: _audioStatus == 'ready' && !_isAudioLoading ? _toggleFullAudioPlayback : null,
+                child: Text(
+                  _audioStatus == 'ready'
+                      ? (_isAudioLoading ? '加载音频...' : (_isAudioPlaying ? '暂停播放' : '全文播放'))
+                      : (_audioStatus == 'failed' ? '音频失败' : '音频生成中'),
+                ),
+              ),
+              OutlinedButton(
+                onPressed: _isAudioPlaying || _currentAudioPosition > Duration.zero ? _stopArticleAudio : null,
+                child: const Text('停止'),
+              ),
+              if (_audioStatus == 'pending' || _audioStatus == 'processing')
                 OutlinedButton(
-                  onPressed: _audioStatus == 'ready' && !_isAudioLoading ? _toggleFullAudioPlayback : null,
-                  child: Text(
-                    _audioStatus == 'ready'
-                        ? (_isAudioLoading ? '加载音频...' : (_isAudioPlaying ? '暂停播放' : '全文播放'))
-                        : '音频生成中',
-                  ),
+                  onPressed: _refreshAudioStatus,
+                  child: const Text('刷新音频'),
                 ),
               OutlinedButton(
                 onPressed: () => context.push('/articles/${widget.articleId}/analysis'),
@@ -951,6 +1108,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 }
+
 
 
 

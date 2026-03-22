@@ -818,3 +818,320 @@ def test_web_article_search_latest_pagination_and_source_errors(client: TestClie
     assert len(data['items']) == 1
     assert data['items'][0]['title'] == 'Article One'
     assert data['source_errors'] == ['https://feed-b.example/rss.xml']
+
+
+def test_admin_articles_require_admin_key(client: TestClient) -> None:
+    missing = client.get('/api/v1/admin/articles')
+    assert missing.status_code == 401
+
+    invalid = client.get('/api/v1/admin/articles', headers={'X-Admin-Key': 'wrong-key'})
+    assert invalid.status_code == 403
+
+
+
+def test_admin_article_crud_and_publish_flow(client: TestClient) -> None:
+    from app.core.config import settings
+
+    headers = {'X-Admin-Key': settings.admin_api_key}
+
+    create_response = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': 'Admin Draft Article',
+            'stage_tag': 'cet6',
+            'level': 2,
+            'topic': 'technology',
+            'reading_minutes': 7,
+            'is_published': False,
+            'paragraphs': [
+                'Draft paragraph one about adaptive learning systems.',
+                'Draft paragraph two about formative feedback loops.',
+            ],
+        },
+    )
+    assert create_response.status_code == 200
+    created = create_response.json()['data']
+    article_id = created['id']
+    assert created['is_published'] is False
+    assert created['paragraph_count'] == 2
+
+    public_draft_detail = client.get(f'/api/v1/articles/{article_id}')
+    assert public_draft_detail.status_code == 404
+
+    admin_detail = client.get(f'/api/v1/admin/articles/{article_id}', headers=headers)
+    assert admin_detail.status_code == 200
+    assert admin_detail.json()['data']['title'] == 'Admin Draft Article'
+
+    update_response = client.patch(
+        f'/api/v1/admin/articles/{article_id}',
+        headers=headers,
+        json={
+            'title': 'Admin Published Article',
+            'paragraphs': [
+                'Updated paragraph one about adaptive learning systems.',
+                'Updated paragraph two about formative feedback loops.',
+                'Updated paragraph three about teacher dashboards.',
+            ],
+        },
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()['data']
+    assert updated['title'] == 'Admin Published Article'
+    assert updated['paragraph_count'] == 3
+
+    publish_response = client.post(
+        f'/api/v1/admin/articles/{article_id}/publish',
+        headers=headers,
+        json={'is_published': True},
+    )
+    assert publish_response.status_code == 200
+    assert publish_response.json()['data']['is_published'] is True
+
+    admin_list_response = client.get('/api/v1/admin/articles', headers=headers, params={'published': 'true'})
+    assert admin_list_response.status_code == 200
+    admin_items = admin_list_response.json()['data']['items']
+    assert any(item['id'] == article_id for item in admin_items)
+
+    public_detail = client.get(f'/api/v1/articles/{article_id}')
+    assert public_detail.status_code == 200
+    public_data = public_detail.json()['data']
+    assert public_data['title'] == 'Admin Published Article'
+    assert len(public_data['paragraphs']) == 3
+
+
+def test_admin_sentence_analysis_and_quiz_and_word_management(client: TestClient) -> None:
+    from app.core.config import settings
+
+    headers = {'X-Admin-Key': settings.admin_api_key}
+
+    create_article = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': 'Admin Content Pipeline Article',
+            'stage_tag': 'cet4',
+            'level': 1,
+            'topic': 'science',
+            'reading_minutes': 6,
+            'is_published': False,
+            'paragraphs': [
+                'Paragraph one about memory and study routines.',
+                'Paragraph two about repetition and retrieval.',
+            ],
+        },
+    )
+    assert create_article.status_code == 200
+    article_id = create_article.json()['data']['id']
+
+    analysis_replace = client.put(
+        f'/api/v1/admin/articles/{article_id}/sentence-analyses',
+        headers=headers,
+        json={
+            'items': [
+                {
+                    'sentence_index': 1,
+                    'sentence': 'Sleep helps the brain strengthen memory traces.',
+                    'translation': '睡眠帮助大脑强化记忆痕迹。',
+                    'structure': '主谓宾',
+                },
+                {
+                    'sentence_index': 2,
+                    'sentence': 'Retrieval practice makes recall more stable over time.',
+                    'translation': '提取练习会让回忆在更长时间内更稳定。',
+                    'structure': '主谓宾补',
+                },
+            ]
+        },
+    )
+    assert analysis_replace.status_code == 200
+    analysis_data = analysis_replace.json()['data']
+    assert len(analysis_data['items']) == 2
+    assert analysis_data['items'][0]['sentence_index'] == 1
+
+    admin_analysis = client.get(f'/api/v1/admin/articles/{article_id}/sentence-analyses', headers=headers)
+    assert admin_analysis.status_code == 200
+    assert len(admin_analysis.json()['data']['items']) == 2
+
+    draft_public_analysis = client.get(f'/api/v1/articles/{article_id}/sentence-analyses')
+    assert draft_public_analysis.status_code == 404
+
+    quiz_replace = client.put(
+        f'/api/v1/admin/articles/{article_id}/quiz',
+        headers=headers,
+        json={
+            'questions': [
+                {
+                    'question_index': 1,
+                    'stem': 'What is the main idea of the passage?',
+                    'options': ['Memory training', 'City traffic', 'Weather forecast'],
+                    'correct_option_index': 1,
+                },
+                {
+                    'question_index': 2,
+                    'stem': 'Which activity improves recall?',
+                    'options': ['Passive rereading', 'Retrieval practice', 'Skipping review'],
+                    'correct_option_index': 2,
+                },
+            ]
+        },
+    )
+    assert quiz_replace.status_code == 200
+    quiz_data = quiz_replace.json()['data']
+    assert len(quiz_data['questions']) == 2
+    assert quiz_data['questions'][1]['correct_option_index'] == 2
+
+    draft_public_quiz = client.get(f'/api/v1/articles/{article_id}/quiz')
+    assert draft_public_quiz.status_code == 404
+
+    publish_response = client.post(
+        f'/api/v1/admin/articles/{article_id}/publish',
+        headers=headers,
+        json={'is_published': True},
+    )
+    assert publish_response.status_code == 200
+
+    public_analysis = client.get(f'/api/v1/articles/{article_id}/sentence-analyses')
+    assert public_analysis.status_code == 200
+    assert len(public_analysis.json()['data']['items']) == 2
+
+    public_quiz = client.get(f'/api/v1/articles/{article_id}/quiz')
+    assert public_quiz.status_code == 200
+    assert len(public_quiz.json()['data']['questions']) == 2
+
+    lemma = f'retention_{uuid4().hex[:8]}'
+    word_create = client.post(
+        '/api/v1/admin/words',
+        headers=headers,
+        json={
+            'lemma': lemma,
+            'phonetic': 'rɪˈtenʃən',
+            'pos': 'n.',
+            'meaning_cn': '保持；记忆保持',
+        },
+    )
+    assert word_create.status_code == 200
+    word_id = word_create.json()['data']['id']
+
+    word_list = client.get('/api/v1/admin/words', headers=headers, params={'q': lemma})
+    assert word_list.status_code == 200
+    word_items = word_list.json()['data']['items']
+    assert any(item['id'] == word_id for item in word_items)
+
+    word_update = client.patch(
+        f'/api/v1/admin/words/{word_id}',
+        headers=headers,
+        json={'meaning_cn': '保持；记忆留存'},
+    )
+    assert word_update.status_code == 200
+    assert word_update.json()['data']['meaning_cn'] == '保持；记忆留存'
+
+
+def test_admin_publish_enqueues_audio_task_and_reaches_ready(client: TestClient) -> None:
+    import time
+
+    from app.core.config import settings
+
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    create_response = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': 'Audio Ready Workflow Article',
+            'stage_tag': 'cet4',
+            'level': 1,
+            'topic': 'science',
+            'reading_minutes': 5,
+            'is_published': False,
+            'paragraphs': [
+                'Paragraph one for audio generation.',
+                'Paragraph two for audio generation.',
+            ],
+        },
+    )
+    assert create_response.status_code == 200
+    article_id = create_response.json()['data']['id']
+
+    publish_response = client.post(
+        f'/api/v1/admin/articles/{article_id}/publish',
+        headers=headers,
+        json={'is_published': True},
+    )
+    assert publish_response.status_code == 200
+    assert publish_response.json()['data']['audio_status'] == 'pending'
+
+    deadline = time.time() + 5
+    final_task = None
+    while time.time() < deadline:
+        task_response = client.get(f'/api/v1/admin/articles/{article_id}/audio-task', headers=headers)
+        assert task_response.status_code == 200
+        final_task = task_response.json()['data']['task']
+        if final_task is not None and final_task['status'] == 'ready':
+            break
+        time.sleep(0.15)
+
+    assert final_task is not None
+    assert final_task['status'] == 'ready'
+    assert final_task['article_audio_url'] == f"{settings.public_base_url}{settings.api_prefix}/articles/{article_id}/audio/file"
+
+    public_audio = client.get(f'/api/v1/articles/{article_id}/audio')
+    assert public_audio.status_code == 200
+    audio_data = public_audio.json()['data']
+    assert audio_data['status'] == 'ready'
+    assert audio_data['article_audio_url'] == f"{settings.public_base_url}{settings.api_prefix}/articles/{article_id}/audio/file"
+
+    audio_file = client.get(f'/api/v1/articles/{article_id}/audio/file')
+    assert audio_file.status_code == 200
+    assert audio_file.headers['content-type'].startswith('audio/wav')
+    assert len(audio_file.content) > 100
+
+
+
+def test_admin_audio_task_retries_and_fails(client: TestClient) -> None:
+    import time
+
+    from app.core.config import settings
+
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    create_response = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': '[tts-fail] Audio Failure Workflow Article',
+            'stage_tag': 'cet6',
+            'level': 2,
+            'topic': 'technology',
+            'reading_minutes': 5,
+            'is_published': True,
+            'paragraphs': [
+                'Paragraph one for failing audio generation.',
+                'Paragraph two for failing audio generation.',
+            ],
+        },
+    )
+    assert create_response.status_code == 200
+    article_id = create_response.json()['data']['id']
+
+    deadline = time.time() + 8
+    final_task = None
+    while time.time() < deadline:
+        task_response = client.get(f'/api/v1/admin/articles/{article_id}/audio-task', headers=headers)
+        assert task_response.status_code == 200
+        final_task = task_response.json()['data']['task']
+        if final_task is not None and final_task['status'] == 'failed':
+            break
+        time.sleep(0.15)
+
+    assert final_task is not None
+    assert final_task['status'] == 'failed'
+    assert final_task['attempt_count'] == settings.tts_max_attempts
+    assert final_task['last_error'] == 'mock_tts_generation_failed'
+
+    public_audio = client.get(f'/api/v1/articles/{article_id}/audio')
+    assert public_audio.status_code == 200
+    audio_data = public_audio.json()['data']
+    assert audio_data['status'] == 'failed'
+    assert audio_data['article_audio_url'] is None
+    assert audio_data['retry_hint'] == '稍后重试'
+
+

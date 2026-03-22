@@ -1,4 +1,4 @@
-from collections import defaultdict
+﻿from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
-from app.db.models import Quiz, QuizOption, QuizQuestion, UserQuizAnswer, UserQuizAttempt
+from app.db.models import Article, Quiz, QuizOption, QuizQuestion, UserQuizAnswer, UserQuizAttempt
 from app.db.session import get_db
 
 router = APIRouter()
@@ -26,9 +26,11 @@ class QuizSubmitRequest(BaseModel):
     answers: list[dict]
 
 
+
 def _sync_quiz_submit_rate_limit_config() -> None:
     _quiz_submit_rate_limiter.limit_per_window = QUIZ_SUBMIT_LIMIT_PER_MINUTE
     _quiz_submit_rate_limiter.window_seconds = QUIZ_SUBMIT_WINDOW_SECONDS
+
 
 
 def reset_quiz_submit_rate_limit_state_for_test() -> None:
@@ -36,14 +38,25 @@ def reset_quiz_submit_rate_limit_state_for_test() -> None:
     _quiz_submit_rate_limiter.reset()
 
 
+
 def _quiz_submit_rate_limit_keys(request: Request) -> list[str]:
     client_host = request.client.host if request.client else 'unknown'
     return [f'ip:{client_host}']
 
 
+
 def _enforce_quiz_submit_rate_limit(keys: list[str]) -> None:
     _sync_quiz_submit_rate_limit_config()
     _quiz_submit_rate_limiter.enforce(keys)
+
+
+
+def _get_public_article_or_404(db: Session, article_id: int) -> Article:
+    article = db.get(Article, article_id)
+    if article is None or not article.is_published:
+        raise HTTPException(status_code=404, detail='article not found')
+    return article
+
 
 
 def _load_quiz_questions(db: Session, article_id: int) -> list[tuple[QuizQuestion, list[QuizOption]]]:
@@ -73,6 +86,7 @@ def _load_quiz_questions(db: Session, article_id: int) -> list[tuple[QuizQuestio
     return [(question, options_by_question.get(question.id, [])) for question in questions]
 
 
+
 def _normalize_selected_option(raw_answer: object, options: list[QuizOption]) -> str | None:
     if raw_answer is None:
         return None
@@ -96,6 +110,7 @@ def _normalize_selected_option(raw_answer: object, options: list[QuizOption]) ->
 
 @router.get('/articles/{article_id}/quiz')
 def get_article_quiz(article_id: int, db: Session = Depends(get_db)) -> dict:
+    _get_public_article_or_404(db, article_id)
     question_bundle = _load_quiz_questions(db, article_id)
     if not question_bundle:
         raise HTTPException(status_code=404, detail='quiz not found for article')
@@ -118,6 +133,7 @@ def get_article_quiz(article_id: int, db: Session = Depends(get_db)) -> dict:
 @router.post('/quiz/submit')
 def submit_quiz(payload: QuizSubmitRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     _enforce_quiz_submit_rate_limit(_quiz_submit_rate_limit_keys(request))
+    _get_public_article_or_404(db, payload.article_id)
 
     question_bundle = _load_quiz_questions(db, payload.article_id)
     if not question_bundle:

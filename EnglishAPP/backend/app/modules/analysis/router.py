@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,7 @@ router = APIRouter()
 @router.get("/{article_id}/sentence-analyses")
 def sentence_analyses(article_id: int, db: Session = Depends(get_db)) -> dict:
     article = db.get(Article, article_id)
-    if article is None:
+    if article is None or not article.is_published:
         raise HTTPException(status_code=404, detail="article not found")
 
     rows = db.scalars(

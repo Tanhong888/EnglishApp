@@ -1,5 +1,6 @@
 ﻿from fastapi import APIRouter
 
+from app.modules.admin.router import router as admin_router
 from app.modules.analysis.router import router as analysis_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
@@ -18,6 +19,7 @@ api_router = APIRouter()
 api_router.include_router(health_router, tags=['health'])
 api_router.include_router(auth_router, prefix='/auth', tags=['auth'])
 api_router.include_router(users_router, prefix='/users', tags=['users'])
+api_router.include_router(admin_router, prefix='/admin', tags=['admin'])
 api_router.include_router(home_router, prefix='/home', tags=['home'])
 api_router.include_router(content_router, prefix='/articles', tags=['content'])
 api_router.include_router(reading_router, prefix='/reading', tags=['reading'])
