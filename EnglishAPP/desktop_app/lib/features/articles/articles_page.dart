@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/api_client.dart';
+import '../../core/state/session_controller.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
 class ArticlesPage extends ConsumerStatefulWidget {
