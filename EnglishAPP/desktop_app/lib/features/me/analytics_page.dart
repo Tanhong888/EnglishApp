@@ -36,7 +36,7 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
 
     final api = ref.read(authApiProvider);
     final response = await api.get(
-      '/analytics/dashboard/summary',
+      '/analytics/dashboard/me-summary',
       requiresAuth: true,
       query: {'days': _days.toString()},
     );
@@ -225,3 +225,4 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
     );
   }
 }
+

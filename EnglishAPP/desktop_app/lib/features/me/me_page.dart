@@ -81,7 +81,7 @@ class _MePageState extends ConsumerState<MePage> {
     var analyticsSummary = <String, dynamic>{};
     try {
       final summaryResp = await api.get(
-        '/analytics/dashboard/summary',
+        '/analytics/dashboard/me-summary',
         requiresAuth: true,
         query: {'days': '7'},
       );
@@ -344,6 +344,7 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
+
 
 
 

@@ -419,3 +419,54 @@ def test_analytics_track_and_list(client: TestClient) -> None:
     assert summary_data['dau'] >= 1
     assert summary_data['event_counts']['word_tap'] >= 1
     assert isinstance(summary_data['timeline'], list)
+
+
+def test_analytics_me_summary_scoped_by_current_user(client: TestClient) -> None:
+    demo_tokens = login_and_get_tokens(client)
+    demo_headers = make_headers(demo_tokens['access_token'])
+    demo_me = client.get('/api/v1/users/me', headers=demo_headers)
+    assert demo_me.status_code == 200
+    demo_user_id = demo_me.json()['data']['id']
+
+    _, other_tokens = register_and_login(client)
+    other_headers = make_headers(other_tokens['access_token'])
+    other_me = client.get('/api/v1/users/me', headers=other_headers)
+    assert other_me.status_code == 200
+    other_user_id = other_me.json()['data']['id']
+
+    create_demo = client.post(
+        '/api/v1/analytics/events',
+        json={
+            'event_name': 'user_scope_probe_u1',
+            'user_id': demo_user_id,
+            'article_id': 1,
+            'context': {'source': 'scope_test'},
+        },
+    )
+    assert create_demo.status_code == 200
+
+    create_other = client.post(
+        '/api/v1/analytics/events',
+        json={
+            'event_name': 'user_scope_probe_u2',
+            'user_id': other_user_id,
+            'article_id': 1,
+            'context': {'source': 'scope_test'},
+        },
+    )
+    assert create_other.status_code == 200
+
+    unauthorized = client.get('/api/v1/analytics/dashboard/me-summary', params={'days': 7})
+    assert unauthorized.status_code == 401
+
+    demo_summary = client.get('/api/v1/analytics/dashboard/me-summary', params={'days': 7}, headers=demo_headers)
+    assert demo_summary.status_code == 200
+    demo_data = demo_summary.json()['data']
+    assert demo_data['event_counts'].get('user_scope_probe_u1', 0) >= 1
+    assert demo_data['event_counts'].get('user_scope_probe_u2', 0) == 0
+
+    other_summary = client.get('/api/v1/analytics/dashboard/me-summary', params={'days': 7}, headers=other_headers)
+    assert other_summary.status_code == 200
+    other_data = other_summary.json()['data']
+    assert other_data['event_counts'].get('user_scope_probe_u2', 0) >= 1
+    assert other_data['event_counts'].get('user_scope_probe_u1', 0) == 0

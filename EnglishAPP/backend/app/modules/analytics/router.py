@@ -7,8 +7,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.core.response import success
-from app.db.models import AnalyticsEvent
+from app.db.models import AnalyticsEvent, User
 from app.db.session import get_db
 
 router = APIRouter()
@@ -20,6 +21,42 @@ class TrackEventRequest(BaseModel):
     article_id: int | None = Field(default=None, ge=1)
     word: str | None = Field(default=None, min_length=1, max_length=128)
     context: dict[str, str | int | float | bool | None] | None = None
+
+
+def _build_summary_payload(events: list[AnalyticsEvent], days: int, since: datetime) -> dict:
+    event_counts = Counter(item.event_name for item in events)
+    active_users = {item.user_id for item in events if item.user_id is not None}
+
+    timeline_counter: dict[str, int] = {}
+    for item in events:
+        day = item.created_at.date().isoformat()
+        timeline_counter[day] = timeline_counter.get(day, 0) + 1
+
+    top_word_counter = Counter(item.word for item in events if item.event_name == 'word_tap' and item.word)
+
+    return {
+        'window_days': days,
+        'since': since.isoformat(),
+        'event_total': len(events),
+        'dau': len(active_users),
+        'event_counts': dict(event_counts),
+        'timeline': [{'date': day, 'events': timeline_counter[day]} for day in sorted(timeline_counter.keys())],
+        'top_words': [
+            {'word': word, 'count': count}
+            for word, count in top_word_counter.most_common(10)
+        ],
+    }
+
+
+def _query_events(db: Session, *, days: int, user_id: int | None = None) -> tuple[datetime, list[AnalyticsEvent]]:
+    since = datetime.now() - timedelta(days=days)
+
+    query = select(AnalyticsEvent).where(AnalyticsEvent.created_at >= since)
+    if user_id is not None:
+        query = query.where(AnalyticsEvent.user_id == user_id)
+
+    events = db.scalars(query.order_by(desc(AnalyticsEvent.created_at))).all()
+    return since, events
 
 
 @router.post('/events')
@@ -78,33 +115,15 @@ def dashboard_summary(
     days: int = Query(default=7, ge=1, le=90),
     db: Session = Depends(get_db),
 ) -> dict:
-    since = datetime.now() - timedelta(days=days)
-    events = db.scalars(
-        select(AnalyticsEvent).where(AnalyticsEvent.created_at >= since).order_by(desc(AnalyticsEvent.created_at))
-    ).all()
+    since, events = _query_events(db, days=days)
+    return success(_build_summary_payload(events, days, since))
 
-    event_counts = Counter(item.event_name for item in events)
-    active_users = {item.user_id for item in events if item.user_id is not None}
 
-    timeline_counter: dict[str, int] = {}
-    for item in events:
-        day = item.created_at.date().isoformat()
-        timeline_counter[day] = timeline_counter.get(day, 0) + 1
-
-    top_word_counter = Counter(item.word for item in events if item.event_name == 'word_tap' and item.word)
-
-    return success(
-        {
-            'window_days': days,
-            'since': since.isoformat(),
-            'event_total': len(events),
-            'dau': len(active_users),
-            'event_counts': dict(event_counts),
-            'timeline': [{'date': day, 'events': timeline_counter[day]} for day in sorted(timeline_counter.keys())],
-            'top_words': [
-                {'word': word, 'count': count}
-                for word, count in top_word_counter.most_common(10)
-            ],
-        }
-    )
-
+@router.get('/dashboard/me-summary')
+def dashboard_me_summary(
+    days: int = Query(default=7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    since, events = _query_events(db, days=days, user_id=current_user.id)
+    return success(_build_summary_payload(events, days, since))
