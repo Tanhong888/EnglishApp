@@ -1,6 +1,4 @@
-from collections import deque
-from datetime import datetime, timedelta, timezone
-from threading import Lock
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -8,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
 from app.db.models import RefreshToken, User
@@ -17,8 +16,11 @@ router = APIRouter()
 
 AUTH_LOGIN_LIMIT_PER_MINUTE = 120
 AUTH_LOGIN_WINDOW_SECONDS = 60
-_login_rate_limit_lock = Lock()
-_login_request_timestamps: dict[str, deque[datetime]] = {}
+_login_rate_limiter = SlidingWindowRateLimiter(
+    limit_per_window=AUTH_LOGIN_LIMIT_PER_MINUTE,
+    window_seconds=AUTH_LOGIN_WINDOW_SECONDS,
+    error_detail='auth_login_rate_limited',
+)
 
 
 class RegisterRequest(BaseModel):
@@ -37,9 +39,14 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+def _sync_login_rate_limit_config() -> None:
+    _login_rate_limiter.limit_per_window = AUTH_LOGIN_LIMIT_PER_MINUTE
+    _login_rate_limiter.window_seconds = AUTH_LOGIN_WINDOW_SECONDS
+
+
 def reset_auth_login_rate_limit_state_for_test() -> None:
-    with _login_rate_limit_lock:
-        _login_request_timestamps.clear()
+    _sync_login_rate_limit_config()
+    _login_rate_limiter.reset()
 
 
 def _login_rate_limit_keys(payload: LoginRequest, request: Request) -> list[str]:
@@ -49,23 +56,8 @@ def _login_rate_limit_keys(payload: LoginRequest, request: Request) -> list[str]
 
 
 def _enforce_login_rate_limit(keys: list[str], now: datetime | None = None) -> None:
-    current_time = now or datetime.now(timezone.utc)
-    window_start = current_time - timedelta(seconds=AUTH_LOGIN_WINDOW_SECONDS)
-
-    with _login_rate_limit_lock:
-        for key in keys:
-            timestamps = _login_request_timestamps.setdefault(key, deque())
-            while timestamps and timestamps[0] <= window_start:
-                timestamps.popleft()
-
-            if len(timestamps) >= AUTH_LOGIN_LIMIT_PER_MINUTE:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail='auth_login_rate_limited',
-                )
-
-        for key in keys:
-            _login_request_timestamps.setdefault(key, deque()).append(current_time)
+    _sync_login_rate_limit_config()
+    _login_rate_limiter.enforce(keys, now=now)
 
 
 def serialize_user(user: User) -> dict:

@@ -1,12 +1,11 @@
-from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
-from threading import Lock
+from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.db.models import Quiz, QuizOption, QuizQuestion, UserQuizAnswer, UserQuizAttempt
 from app.db.session import get_db
@@ -15,8 +14,11 @@ router = APIRouter()
 
 QUIZ_SUBMIT_LIMIT_PER_MINUTE = 120
 QUIZ_SUBMIT_WINDOW_SECONDS = 60
-_quiz_submit_rate_limit_lock = Lock()
-_quiz_submit_timestamps: dict[str, deque[datetime]] = {}
+_quiz_submit_rate_limiter = SlidingWindowRateLimiter(
+    limit_per_window=QUIZ_SUBMIT_LIMIT_PER_MINUTE,
+    window_seconds=QUIZ_SUBMIT_WINDOW_SECONDS,
+    error_detail='quiz_submit_rate_limited',
+)
 
 
 class QuizSubmitRequest(BaseModel):
@@ -24,9 +26,14 @@ class QuizSubmitRequest(BaseModel):
     answers: list[dict]
 
 
+def _sync_quiz_submit_rate_limit_config() -> None:
+    _quiz_submit_rate_limiter.limit_per_window = QUIZ_SUBMIT_LIMIT_PER_MINUTE
+    _quiz_submit_rate_limiter.window_seconds = QUIZ_SUBMIT_WINDOW_SECONDS
+
+
 def reset_quiz_submit_rate_limit_state_for_test() -> None:
-    with _quiz_submit_rate_limit_lock:
-        _quiz_submit_timestamps.clear()
+    _sync_quiz_submit_rate_limit_config()
+    _quiz_submit_rate_limiter.reset()
 
 
 def _quiz_submit_rate_limit_keys(request: Request) -> list[str]:
@@ -34,24 +41,9 @@ def _quiz_submit_rate_limit_keys(request: Request) -> list[str]:
     return [f'ip:{client_host}']
 
 
-def _enforce_quiz_submit_rate_limit(keys: list[str], now: datetime | None = None) -> None:
-    current_time = now or datetime.now(timezone.utc)
-    window_start = current_time - timedelta(seconds=QUIZ_SUBMIT_WINDOW_SECONDS)
-
-    with _quiz_submit_rate_limit_lock:
-        for key in keys:
-            timestamps = _quiz_submit_timestamps.setdefault(key, deque())
-            while timestamps and timestamps[0] <= window_start:
-                timestamps.popleft()
-
-            if len(timestamps) >= QUIZ_SUBMIT_LIMIT_PER_MINUTE:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail='quiz_submit_rate_limited',
-                )
-
-        for key in keys:
-            _quiz_submit_timestamps.setdefault(key, deque()).append(current_time)
+def _enforce_quiz_submit_rate_limit(keys: list[str]) -> None:
+    _sync_quiz_submit_rate_limit_config()
+    _quiz_submit_rate_limiter.enforce(keys)
 
 
 def _load_quiz_questions(db: Session, article_id: int) -> list[tuple[QuizQuestion, list[QuizOption]]]:

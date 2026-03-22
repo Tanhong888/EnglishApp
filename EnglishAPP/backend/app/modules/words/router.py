@@ -1,12 +1,10 @@
-from collections import deque
-from datetime import datetime, timedelta, timezone
-from threading import Lock
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.db.models import Word
 from app.db.session import get_db
@@ -15,13 +13,21 @@ router = APIRouter()
 
 WORD_LOOKUP_LIMIT_PER_MINUTE = 240
 WORD_LOOKUP_WINDOW_SECONDS = 60
-_word_lookup_rate_limit_lock = Lock()
-_word_lookup_timestamps: dict[str, deque[datetime]] = {}
+_word_lookup_rate_limiter = SlidingWindowRateLimiter(
+    limit_per_window=WORD_LOOKUP_LIMIT_PER_MINUTE,
+    window_seconds=WORD_LOOKUP_WINDOW_SECONDS,
+    error_detail='word_lookup_rate_limited',
+)
+
+
+def _sync_word_lookup_rate_limit_config() -> None:
+    _word_lookup_rate_limiter.limit_per_window = WORD_LOOKUP_LIMIT_PER_MINUTE
+    _word_lookup_rate_limiter.window_seconds = WORD_LOOKUP_WINDOW_SECONDS
 
 
 def reset_word_lookup_rate_limit_state_for_test() -> None:
-    with _word_lookup_rate_limit_lock:
-        _word_lookup_timestamps.clear()
+    _sync_word_lookup_rate_limit_config()
+    _word_lookup_rate_limiter.reset()
 
 
 def _word_lookup_rate_limit_keys(request: Request) -> list[str]:
@@ -29,24 +35,9 @@ def _word_lookup_rate_limit_keys(request: Request) -> list[str]:
     return [f'ip:{client_host}']
 
 
-def _enforce_word_lookup_rate_limit(keys: list[str], now: datetime | None = None) -> None:
-    current_time = now or datetime.now(timezone.utc)
-    window_start = current_time - timedelta(seconds=WORD_LOOKUP_WINDOW_SECONDS)
-
-    with _word_lookup_rate_limit_lock:
-        for key in keys:
-            timestamps = _word_lookup_timestamps.setdefault(key, deque())
-            while timestamps and timestamps[0] <= window_start:
-                timestamps.popleft()
-
-            if len(timestamps) >= WORD_LOOKUP_LIMIT_PER_MINUTE:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail='word_lookup_rate_limited',
-                )
-
-        for key in keys:
-            _word_lookup_timestamps.setdefault(key, deque()).append(current_time)
+def _enforce_word_lookup_rate_limit(keys: list[str]) -> None:
+    _sync_word_lookup_rate_limit_config()
+    _word_lookup_rate_limiter.enforce(keys)
 
 
 def _get_word_or_404(word: str, db: Session) -> Word:

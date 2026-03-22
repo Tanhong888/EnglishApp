@@ -1,14 +1,14 @@
 import json
-from collections import Counter, defaultdict, deque
+from collections import Counter
 from datetime import datetime, timedelta
-from threading import Lock
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.db.models import AnalyticsEvent, User
 from app.db.session import get_db
@@ -17,9 +17,11 @@ router = APIRouter()
 
 ANALYTICS_TRACK_LIMIT_PER_MINUTE = 120
 ANALYTICS_TRACK_WINDOW_SECONDS = 60
-
-_track_rate_limit_lock = Lock()
-_track_event_timestamps: dict[str, deque[datetime]] = defaultdict(deque)
+_track_event_rate_limiter = SlidingWindowRateLimiter(
+    limit_per_window=ANALYTICS_TRACK_LIMIT_PER_MINUTE,
+    window_seconds=ANALYTICS_TRACK_WINDOW_SECONDS,
+    error_detail='analytics_track_rate_limited',
+)
 
 
 class TrackEventRequest(BaseModel):
@@ -30,9 +32,14 @@ class TrackEventRequest(BaseModel):
     context: dict[str, str | int | float | bool | None] | None = None
 
 
+def _sync_track_rate_limit_config() -> None:
+    _track_event_rate_limiter.limit_per_window = ANALYTICS_TRACK_LIMIT_PER_MINUTE
+    _track_event_rate_limiter.window_seconds = ANALYTICS_TRACK_WINDOW_SECONDS
+
+
 def reset_analytics_rate_limit_state_for_test() -> None:
-    with _track_rate_limit_lock:
-        _track_event_timestamps.clear()
+    _sync_track_rate_limit_config()
+    _track_event_rate_limiter.reset()
 
 
 def _track_rate_limit_keys(payload: TrackEventRequest, request: Request) -> list[str]:
@@ -46,23 +53,8 @@ def _track_rate_limit_keys(payload: TrackEventRequest, request: Request) -> list
 
 
 def _enforce_track_event_rate_limit(keys: list[str], now: datetime | None = None) -> None:
-    now = now or datetime.now()
-    window_start = now - timedelta(seconds=ANALYTICS_TRACK_WINDOW_SECONDS)
-
-    with _track_rate_limit_lock:
-        for key in keys:
-            bucket = _track_event_timestamps[key]
-            while bucket and bucket[0] < window_start:
-                bucket.popleft()
-
-            if len(bucket) >= ANALYTICS_TRACK_LIMIT_PER_MINUTE:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail='analytics_track_rate_limited',
-                )
-
-        for key in keys:
-            _track_event_timestamps[key].append(now)
+    _sync_track_rate_limit_config()
+    _track_event_rate_limiter.enforce(keys, now=now)
 
 
 def _build_summary_payload(events: list[AnalyticsEvent], days: int, since: datetime) -> dict:
