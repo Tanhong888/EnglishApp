@@ -1,8 +1,9 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta
+from threading import Lock
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -14,6 +15,12 @@ from app.db.session import get_db
 
 router = APIRouter()
 
+ANALYTICS_TRACK_LIMIT_PER_MINUTE = 120
+ANALYTICS_TRACK_WINDOW_SECONDS = 60
+
+_track_rate_limit_lock = Lock()
+_track_event_timestamps: dict[str, deque[datetime]] = defaultdict(deque)
+
 
 class TrackEventRequest(BaseModel):
     event_name: str = Field(min_length=1, max_length=64)
@@ -21,6 +28,41 @@ class TrackEventRequest(BaseModel):
     article_id: int | None = Field(default=None, ge=1)
     word: str | None = Field(default=None, min_length=1, max_length=128)
     context: dict[str, str | int | float | bool | None] | None = None
+
+
+def reset_analytics_rate_limit_state_for_test() -> None:
+    with _track_rate_limit_lock:
+        _track_event_timestamps.clear()
+
+
+def _track_rate_limit_keys(payload: TrackEventRequest, request: Request) -> list[str]:
+    keys: list[str] = []
+    if payload.user_id is not None:
+        keys.append(f'user:{payload.user_id}')
+
+    client_host = request.client.host if request.client and request.client.host else 'unknown'
+    keys.append(f'ip:{client_host}')
+    return keys
+
+
+def _enforce_track_event_rate_limit(keys: list[str], now: datetime | None = None) -> None:
+    now = now or datetime.now()
+    window_start = now - timedelta(seconds=ANALYTICS_TRACK_WINDOW_SECONDS)
+
+    with _track_rate_limit_lock:
+        for key in keys:
+            bucket = _track_event_timestamps[key]
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+
+            if len(bucket) >= ANALYTICS_TRACK_LIMIT_PER_MINUTE:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail='analytics_track_rate_limited',
+                )
+
+        for key in keys:
+            _track_event_timestamps[key].append(now)
 
 
 def _build_summary_payload(events: list[AnalyticsEvent], days: int, since: datetime) -> dict:
@@ -60,7 +102,10 @@ def _query_events(db: Session, *, days: int, user_id: int | None = None) -> tupl
 
 
 @router.post('/events')
-def track_event(payload: TrackEventRequest, db: Session = Depends(get_db)) -> dict:
+def track_event(payload: TrackEventRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    keys = _track_rate_limit_keys(payload, request)
+    _enforce_track_event_rate_limit(keys)
+
     word = payload.word.strip().lower() if payload.word else None
     context_json = json.dumps(payload.context, ensure_ascii=False) if payload.context is not None else None
 

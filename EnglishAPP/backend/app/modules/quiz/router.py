@@ -1,6 +1,8 @@
-from collections import defaultdict
+from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,10 +13,45 @@ from app.db.session import get_db
 
 router = APIRouter()
 
+QUIZ_SUBMIT_LIMIT_PER_MINUTE = 120
+QUIZ_SUBMIT_WINDOW_SECONDS = 60
+_quiz_submit_rate_limit_lock = Lock()
+_quiz_submit_timestamps: dict[str, deque[datetime]] = {}
+
 
 class QuizSubmitRequest(BaseModel):
     article_id: int
     answers: list[dict]
+
+
+def reset_quiz_submit_rate_limit_state_for_test() -> None:
+    with _quiz_submit_rate_limit_lock:
+        _quiz_submit_timestamps.clear()
+
+
+def _quiz_submit_rate_limit_keys(request: Request) -> list[str]:
+    client_host = request.client.host if request.client else 'unknown'
+    return [f'ip:{client_host}']
+
+
+def _enforce_quiz_submit_rate_limit(keys: list[str], now: datetime | None = None) -> None:
+    current_time = now or datetime.now(timezone.utc)
+    window_start = current_time - timedelta(seconds=QUIZ_SUBMIT_WINDOW_SECONDS)
+
+    with _quiz_submit_rate_limit_lock:
+        for key in keys:
+            timestamps = _quiz_submit_timestamps.setdefault(key, deque())
+            while timestamps and timestamps[0] <= window_start:
+                timestamps.popleft()
+
+            if len(timestamps) >= QUIZ_SUBMIT_LIMIT_PER_MINUTE:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail='quiz_submit_rate_limited',
+                )
+
+        for key in keys:
+            _quiz_submit_timestamps.setdefault(key, deque()).append(current_time)
 
 
 def _load_quiz_questions(db: Session, article_id: int) -> list[tuple[QuizQuestion, list[QuizOption]]]:
@@ -87,7 +124,9 @@ def get_article_quiz(article_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post('/quiz/submit')
-def submit_quiz(payload: QuizSubmitRequest, db: Session = Depends(get_db)) -> dict:
+def submit_quiz(payload: QuizSubmitRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    _enforce_quiz_submit_rate_limit(_quiz_submit_rate_limit_keys(request))
+
     question_bundle = _load_quiz_questions(db, payload.article_id)
     if not question_bundle:
         raise HTTPException(status_code=404, detail='quiz not found for article')

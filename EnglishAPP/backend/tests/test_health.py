@@ -44,6 +44,39 @@ def test_healthcheck(client: TestClient) -> None:
     assert payload['data']['status'] == 'ok'
 
 
+def test_security_headers_and_request_id(client: TestClient) -> None:
+    request_id = 'req-test-123'
+    response = client.get('/health', headers={'X-Request-ID': request_id})
+    assert response.status_code == 200
+
+    assert response.headers['X-Request-ID'] == request_id
+    assert response.headers['X-Content-Type-Options'] == 'nosniff'
+    assert response.headers['X-Frame-Options'] == 'DENY'
+    assert response.headers['Referrer-Policy'] == 'strict-origin-when-cross-origin'
+    assert response.headers['Permissions-Policy'] == 'camera=(), microphone=(), geolocation=()'
+
+
+def test_unhandled_exception_shape_contains_trace_id(client: TestClient) -> None:
+    from app.db.session import get_db
+
+    def broken_db():
+        raise RuntimeError('forced-db-error')
+        yield
+
+    app.dependency_overrides[get_db] = broken_db
+    try:
+        with TestClient(app, raise_server_exceptions=False) as safe_client:
+            response = safe_client.get('/api/v1/articles', headers={'X-Request-ID': 'req-force-500'})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload['message'] == 'internal_server_error'
+    assert payload['detail'] == 'internal_server_error'
+    assert payload['trace_id'] == 'req-force-500'
+
+
 def test_articles_pagination_limit(client: TestClient) -> None:
     response = client.get('/api/v1/articles', params={'size': 100})
     assert response.status_code == 422
@@ -145,6 +178,7 @@ def test_account_hard_delete_flow(client: TestClient) -> None:
     me_response = client.get('/api/v1/users/me', headers=headers)
     assert me_response.status_code == 401
 
+
 def test_sentence_analysis_endpoint(client: TestClient) -> None:
     response = client.get('/api/v1/articles/1/sentence-analyses')
     assert response.status_code == 200
@@ -179,6 +213,7 @@ def test_quiz_not_found(client: TestClient) -> None:
     )
     assert submit_response.status_code == 404
 
+
 def test_quiz_flow_endpoints(client: TestClient) -> None:
     quiz_response = client.get('/api/v1/articles/1/quiz')
     assert quiz_response.status_code == 200
@@ -206,6 +241,7 @@ def test_quiz_flow_endpoints(client: TestClient) -> None:
     assert attempt_data['accuracy'] == 0.0
     assert attempt_data['wrong_items'] == [1, 2, 3]
 
+
 def test_favorite_status_endpoint(client: TestClient) -> None:
     tokens = login_and_get_tokens(client)
     headers = make_headers(tokens['access_token'])
@@ -222,6 +258,7 @@ def test_favorite_status_endpoint(client: TestClient) -> None:
     status_after_favorite = client.get('/api/v1/articles/1/favorite-status', headers=headers)
     assert status_after_favorite.status_code == 200
     assert status_after_favorite.json()['data']['favorite'] is True
+
 
 def test_word_lookup_endpoint(client: TestClient) -> None:
     response = client.get('/api/v1/words/consolidate')
@@ -348,6 +385,7 @@ def test_learning_records_time_filters(client: TestClient) -> None:
     assert future_data['items'] == []
     assert future_data['total'] == 0
 
+
 def test_article_audio_ready_contract(client: TestClient) -> None:
     response = client.get('/api/v1/articles/2/audio')
     assert response.status_code == 200
@@ -379,6 +417,7 @@ def test_article_audio_ready_contract(client: TestClient) -> None:
 
 
 
+
 def test_word_pronunciation_endpoint(client: TestClient) -> None:
     response = client.get('/api/v1/words/consolidate/pronunciation')
     assert response.status_code == 200
@@ -386,6 +425,7 @@ def test_word_pronunciation_endpoint(client: TestClient) -> None:
     assert data['lemma'] == 'consolidate'
     assert data['provider'] == 'youdao'
     assert data['audio_url'].startswith('https://dict.youdao.com/dictvoice')
+
 
 
 
@@ -470,3 +510,101 @@ def test_analytics_me_summary_scoped_by_current_user(client: TestClient) -> None
     other_data = other_summary.json()['data']
     assert other_data['event_counts'].get('user_scope_probe_u2', 0) >= 1
     assert other_data['event_counts'].get('user_scope_probe_u1', 0) == 0
+
+
+def test_analytics_track_rate_limit(client: TestClient) -> None:
+    import importlib
+
+    analytics_module = importlib.import_module('app.modules.analytics.router')
+    original_limit = analytics_module.ANALYTICS_TRACK_LIMIT_PER_MINUTE
+
+    try:
+        analytics_module.ANALYTICS_TRACK_LIMIT_PER_MINUTE = 1
+        analytics_module.reset_analytics_rate_limit_state_for_test()
+
+        first = client.post(
+            '/api/v1/analytics/events',
+            json={
+                'event_name': 'rate_limit_probe',
+                'user_id': 9999,
+                'article_id': 1,
+                'context': {'source': 'rate_limit_test'},
+            },
+        )
+        assert first.status_code == 200
+
+        second = client.post(
+            '/api/v1/analytics/events',
+            json={
+                'event_name': 'rate_limit_probe',
+                'user_id': 9999,
+                'article_id': 1,
+                'context': {'source': 'rate_limit_test'},
+            },
+        )
+        assert second.status_code == 429
+    finally:
+        analytics_module.ANALYTICS_TRACK_LIMIT_PER_MINUTE = original_limit
+        analytics_module.reset_analytics_rate_limit_state_for_test()
+
+
+def test_auth_login_rate_limit(client: TestClient) -> None:
+    import importlib
+
+    auth_module = importlib.import_module('app.modules.auth.router')
+    original_limit = auth_module.AUTH_LOGIN_LIMIT_PER_MINUTE
+
+    try:
+        auth_module.AUTH_LOGIN_LIMIT_PER_MINUTE = 1
+        auth_module.reset_auth_login_rate_limit_state_for_test()
+
+        first = client.post('/api/v1/auth/login', json={'email': 'demo@englishapp.dev', 'password': 'Passw0rd!'})
+        assert first.status_code == 200
+
+        second = client.post('/api/v1/auth/login', json={'email': 'demo@englishapp.dev', 'password': 'Passw0rd!'})
+        assert second.status_code == 429
+    finally:
+        auth_module.AUTH_LOGIN_LIMIT_PER_MINUTE = original_limit
+        auth_module.reset_auth_login_rate_limit_state_for_test()
+
+
+
+def test_word_lookup_rate_limit(client: TestClient) -> None:
+    import importlib
+
+    words_module = importlib.import_module('app.modules.words.router')
+    original_limit = words_module.WORD_LOOKUP_LIMIT_PER_MINUTE
+
+    try:
+        words_module.WORD_LOOKUP_LIMIT_PER_MINUTE = 1
+        words_module.reset_word_lookup_rate_limit_state_for_test()
+
+        first = client.get('/api/v1/words/consolidate')
+        assert first.status_code == 200
+
+        second = client.get('/api/v1/words/consolidate')
+        assert second.status_code == 429
+    finally:
+        words_module.WORD_LOOKUP_LIMIT_PER_MINUTE = original_limit
+        words_module.reset_word_lookup_rate_limit_state_for_test()
+
+
+
+def test_quiz_submit_rate_limit(client: TestClient) -> None:
+    import importlib
+
+    quiz_module = importlib.import_module('app.modules.quiz.router')
+    original_limit = quiz_module.QUIZ_SUBMIT_LIMIT_PER_MINUTE
+
+    try:
+        quiz_module.QUIZ_SUBMIT_LIMIT_PER_MINUTE = 1
+        quiz_module.reset_quiz_submit_rate_limit_state_for_test()
+
+        first = client.post('/api/v1/quiz/submit', json={'article_id': 1, 'answers': []})
+        assert first.status_code == 200
+
+        second = client.post('/api/v1/quiz/submit', json={'article_id': 1, 'answers': []})
+        assert second.status_code == 429
+    finally:
+        quiz_module.QUIZ_SUBMIT_LIMIT_PER_MINUTE = original_limit
+        quiz_module.reset_quiz_submit_rate_limit_state_for_test()

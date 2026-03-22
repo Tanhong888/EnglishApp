@@ -1,7 +1,9 @@
-﻿from datetime import datetime, timezone
+from collections import deque
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +14,11 @@ from app.db.models import RefreshToken, User
 from app.db.session import get_db
 
 router = APIRouter()
+
+AUTH_LOGIN_LIMIT_PER_MINUTE = 120
+AUTH_LOGIN_WINDOW_SECONDS = 60
+_login_rate_limit_lock = Lock()
+_login_request_timestamps: dict[str, deque[datetime]] = {}
 
 
 class RegisterRequest(BaseModel):
@@ -28,6 +35,37 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+def reset_auth_login_rate_limit_state_for_test() -> None:
+    with _login_rate_limit_lock:
+        _login_request_timestamps.clear()
+
+
+def _login_rate_limit_keys(payload: LoginRequest, request: Request) -> list[str]:
+    client_host = request.client.host if request.client else 'unknown'
+    normalized_email = payload.email.strip().lower()
+    return [f'ip:{client_host}', f'ip_email:{client_host}:{normalized_email}']
+
+
+def _enforce_login_rate_limit(keys: list[str], now: datetime | None = None) -> None:
+    current_time = now or datetime.now(timezone.utc)
+    window_start = current_time - timedelta(seconds=AUTH_LOGIN_WINDOW_SECONDS)
+
+    with _login_rate_limit_lock:
+        for key in keys:
+            timestamps = _login_request_timestamps.setdefault(key, deque())
+            while timestamps and timestamps[0] <= window_start:
+                timestamps.popleft()
+
+            if len(timestamps) >= AUTH_LOGIN_LIMIT_PER_MINUTE:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail='auth_login_rate_limited',
+                )
+
+        for key in keys:
+            _login_request_timestamps.setdefault(key, deque()).append(current_time)
 
 
 def serialize_user(user: User) -> dict:
@@ -60,7 +98,9 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post('/login')
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    _enforce_login_rate_limit(_login_rate_limit_keys(payload, request))
+
     user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid_credentials')
