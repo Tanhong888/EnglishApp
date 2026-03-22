@@ -20,36 +20,50 @@ class ApiClient {
     String path, {
     String? accessToken,
     Map<String, String>? query,
+    Map<String, String>? headers,
   }) async {
     final uri = Uri.parse('$_baseUrl$path').replace(queryParameters: query);
-    return _send('GET', uri, accessToken: accessToken);
+    return _send('GET', uri, accessToken: accessToken, headers: headers);
   }
 
   Future<Map<String, dynamic>> post(
     String path, {
     String? accessToken,
     Object? body,
+    Map<String, String>? headers,
   }) async {
     final uri = Uri.parse('$_baseUrl$path');
-    return _send('POST', uri, accessToken: accessToken, body: body);
+    return _send('POST', uri, accessToken: accessToken, body: body, headers: headers);
+  }
+
+  Future<Map<String, dynamic>> put(
+    String path, {
+    String? accessToken,
+    Object? body,
+    Map<String, String>? headers,
+  }) async {
+    final uri = Uri.parse('$_baseUrl$path');
+    return _send('PUT', uri, accessToken: accessToken, body: body, headers: headers);
   }
 
   Future<Map<String, dynamic>> patch(
     String path, {
     String? accessToken,
     Object? body,
+    Map<String, String>? headers,
   }) async {
     final uri = Uri.parse('$_baseUrl$path');
-    return _send('PATCH', uri, accessToken: accessToken, body: body);
+    return _send('PATCH', uri, accessToken: accessToken, body: body, headers: headers);
   }
 
   Future<Map<String, dynamic>> delete(
     String path, {
     String? accessToken,
     Object? body,
+    Map<String, String>? headers,
   }) async {
     final uri = Uri.parse('$_baseUrl$path');
-    return _send('DELETE', uri, accessToken: accessToken, body: body);
+    return _send('DELETE', uri, accessToken: accessToken, body: body, headers: headers);
   }
 
   Future<Map<String, dynamic>> _send(
@@ -57,6 +71,7 @@ class ApiClient {
     Uri uri, {
     String? accessToken,
     Object? body,
+    Map<String, String>? headers,
   }) async {
     final client = HttpClient();
     try {
@@ -64,6 +79,11 @@ class ApiClient {
       request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
       if (accessToken != null && accessToken.isNotEmpty) {
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+      }
+      if (headers != null) {
+        for (final entry in headers.entries) {
+          request.headers.set(entry.key, entry.value);
+        }
       }
       if (body != null) {
         request.write(jsonEncode(body));

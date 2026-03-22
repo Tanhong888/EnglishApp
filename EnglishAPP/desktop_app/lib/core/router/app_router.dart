@@ -1,6 +1,8 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/admin_article_editor_page.dart';
+import '../../features/admin/admin_console_page.dart';
 import '../../features/analysis/analysis_page.dart';
 import '../../features/articles/article_detail_page.dart';
 import '../../features/articles/articles_page.dart';
@@ -53,6 +55,12 @@ class AppRouter {
       GoRoute(path: '/me/favorites', builder: (_, __) => const FavoritesPage()),
       GoRoute(path: '/me/learning-records', builder: (_, __) => const LearningRecordsPage()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
+      GoRoute(path: '/admin', builder: (_, __) => const AdminConsolePage()),
+      GoRoute(path: '/admin/articles/new', builder: (_, __) => const AdminArticleEditorPage()),
+      GoRoute(
+        path: '/admin/articles/:articleId',
+        builder: (_, state) => AdminArticleEditorPage(articleId: state.pathParameters['articleId']!),
+      ),
     ],
     errorBuilder: (_, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.uri.toString()}')),
