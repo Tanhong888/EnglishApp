@@ -63,6 +63,14 @@ cd backend
 python -m pytest tests -q
 ```
 
+桌面端基础检查：
+
+```powershell
+cd desktop_app
+flutter analyze
+flutter test
+```
+
 ## 6) 环境变量
 
 - 根目录：`.env.example`
@@ -78,5 +86,10 @@ python -m pytest tests -q
 - SQLAlchemy 模型、自动建表、种子数据
 - JWT 鉴权（登录、刷新轮换、登出撤销、受保护 `/users/me`）
 - Alembic 迁移骨架与初始迁移
-- 后端基础 API 测试（6 条，已通过）
+- 后端集成测试（30 条，已通过）
+
+## 8) CI 与发布
+
+- 代码仓库已按 `backend` / `desktop_app` 两条链路准备 CI 入口
+- 发布与回滚流程见 [发布与回滚SOP.md](D:/AI/EnglishAPP/发布与回滚SOP.md)
 
