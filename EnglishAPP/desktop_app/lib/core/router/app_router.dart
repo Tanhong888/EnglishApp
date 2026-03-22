@@ -10,6 +10,7 @@ import '../../features/me/analytics_page.dart';
 import '../../features/me/favorites_page.dart';
 import '../../features/me/learning_records_page.dart';
 import '../../features/me/me_page.dart';
+import '../../features/me/settings_page.dart';
 import '../../features/quiz/quiz_page.dart';
 import '../../features/quiz/quiz_result_page.dart';
 import '../../features/vocab/vocab_detail_page.dart';
@@ -49,6 +50,7 @@ class AppRouter {
       GoRoute(path: '/me/analytics', builder: (_, __) => const MeAnalyticsPage()),
       GoRoute(path: '/me/favorites', builder: (_, __) => const FavoritesPage()),
       GoRoute(path: '/me/learning-records', builder: (_, __) => const LearningRecordsPage()),
+      GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
     ],
     errorBuilder: (_, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.uri.toString()}')),

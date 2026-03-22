@@ -97,6 +97,15 @@ class SessionController extends StateNotifier<SessionState> {
     await _clearStorage(prefs);
   }
 
+  Future<void> updateUser(Map<String, dynamic> patch) async {
+    final currentUser = state.user ?? <String, dynamic>{};
+    final nextUser = <String, dynamic>{...currentUser, ...patch};
+    state = state.copyWith(user: nextUser, initialized: true);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kUserKey, jsonEncode(nextUser));
+  }
+
   Future<void> _clearStorage(SharedPreferences prefs) async {
     await prefs.remove(_kAccessTokenKey);
     await prefs.remove(_kRefreshTokenKey);
@@ -224,4 +233,5 @@ final authApiProvider = Provider<AuthenticatedApi>((ref) {
 final sessionProvider = StateNotifierProvider<SessionController, SessionState>((ref) {
   return SessionController();
 });
+
 

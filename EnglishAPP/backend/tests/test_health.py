@@ -149,6 +149,20 @@ def test_auth_lifecycle_and_users_me(client: TestClient) -> None:
     assert reused_response.status_code == 401
 
 
+def test_update_current_user_target(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    update_response = client.patch('/api/v1/users/me', headers=headers, json={'target': 'cet6'})
+    assert update_response.status_code == 200
+    assert update_response.json()['data']['target'] == 'cet6'
+
+    me_response = client.get('/api/v1/users/me', headers=headers)
+    assert me_response.status_code == 200
+    assert me_response.json()['data']['target'] == 'cet6'
+
+
+
 def test_account_soft_delete_flow(client: TestClient) -> None:
     email, tokens = register_and_login(client)
     headers = make_headers(tokens['access_token'])
@@ -177,6 +191,21 @@ def test_account_hard_delete_flow(client: TestClient) -> None:
 
     me_response = client.get('/api/v1/users/me', headers=headers)
     assert me_response.status_code == 401
+
+
+def test_demo_articles_have_full_paragraphs(client: TestClient) -> None:
+    first_article = client.get('/api/v1/articles/1')
+    assert first_article.status_code == 200
+    first_paragraphs = first_article.json()['data']['paragraphs']
+    assert len(first_paragraphs) >= 4
+    assert all(item['text'] for item in first_paragraphs)
+
+    third_article = client.get('/api/v1/articles/3')
+    assert third_article.status_code == 200
+    third_paragraphs = third_article.json()['data']['paragraphs']
+    assert len(third_paragraphs) >= 4
+    assert all(item['text'] for item in third_paragraphs)
+
 
 
 def test_sentence_analysis_endpoint(client: TestClient) -> None:
@@ -671,5 +700,7 @@ def test_quiz_submit_rate_limit(client: TestClient) -> None:
     finally:
         quiz_module.QUIZ_SUBMIT_LIMIT_PER_MINUTE = original_limit
         quiz_module.reset_quiz_submit_rate_limit_state_for_test()
+
+
 
 

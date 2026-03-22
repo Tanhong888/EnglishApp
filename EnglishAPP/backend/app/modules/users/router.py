@@ -15,12 +15,44 @@ from app.db.session import get_db
 router = APIRouter()
 
 
+class UpdateProfileRequest(BaseModel):
+    nickname: str | None = None
+    target: Literal['cet4', 'cet6', 'kaoyan'] | None = None
+
+
 class DeleteAccountRequest(BaseModel):
     mode: Literal['soft', 'hard'] = 'soft'
 
 
 @router.get('/me')
 def get_current_user_profile(current_user: User = Depends(get_current_user)) -> dict:
+    return success(
+        {
+            'id': current_user.id,
+            'email': current_user.email,
+            'nickname': current_user.nickname,
+            'target': current_user.target,
+            'is_active': current_user.is_active,
+            'deleted_at': current_user.deleted_at.isoformat() if current_user.deleted_at else None,
+            'deletion_due_at': current_user.deletion_due_at.isoformat() if current_user.deletion_due_at else None,
+        }
+    )
+
+
+@router.patch('/me')
+def update_current_user_profile(
+    payload: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    if payload.nickname is not None:
+        current_user.nickname = payload.nickname.strip() or current_user.nickname
+    if payload.target is not None:
+        current_user.target = payload.target
+
+    db.commit()
+    db.refresh(current_user)
+
     return success(
         {
             'id': current_user.id,

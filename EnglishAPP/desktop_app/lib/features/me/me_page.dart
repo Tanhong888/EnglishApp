@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -111,42 +111,6 @@ class _MePageState extends ConsumerState<MePage> {
       _learningRange = range;
       _future = _loadDashboard();
     });
-  }
-
-  Future<void> _logout() async {
-    final session = ref.read(sessionProvider);
-    final api = ref.read(apiClientProvider);
-
-    try {
-      final refreshToken = session.refreshToken;
-      if (refreshToken != null && refreshToken.isNotEmpty) {
-        await api.post('/auth/logout', body: {'refresh_token': refreshToken});
-      }
-    } catch (_) {
-      // Logout should still clear local session even if network request fails.
-    }
-
-    await ref.read(sessionProvider.notifier).clear();
-    if (!mounted) return;
-    context.go('/login');
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已退出登录')));
-  }
-
-  Future<void> _deleteAccount(String mode) async {
-    final session = ref.read(sessionProvider);
-    if (!session.isAuthenticated) return;
-
-    final api = ref.read(authApiProvider);
-    try {
-      await api.delete('/users/me', body: {'mode': mode}, requiresAuth: true);
-      await ref.read(sessionProvider.notifier).clear();
-      if (!mounted) return;
-      context.go('/login');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('账号已${mode == 'soft' ? '软删除' : '硬删除'}')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('账号删除失败：$e')));
-    }
   }
 
   String _formatTime(String? raw) {
@@ -311,29 +275,23 @@ class _MePageState extends ConsumerState<MePage> {
                 ),
                 const SizedBox(height: 12),
                 Card(
-                  child: ListTile(
-                    title: const Text('收藏文章'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: () => context.push('/me/favorites'),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        title: const Text('收藏文章'),
+                        subtitle: const Text('查看已收藏的阅读内容'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () => context.push('/me/favorites'),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        title: const Text('设置'),
+                        subtitle: const Text('管理账号、会话与学习数据'),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () => context.push('/settings'),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _logout,
-                        child: const Text('退出登录'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _deleteAccount('soft'),
-                        child: const Text('软删除账号'),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             );
@@ -344,8 +302,3 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
-
-
-
-
-

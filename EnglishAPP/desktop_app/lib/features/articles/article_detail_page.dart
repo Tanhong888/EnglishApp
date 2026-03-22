@@ -1,10 +1,11 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../core/state/app_preferences_controller.dart';
 import '../../core/state/session_controller.dart';
 
 class ArticleDetailPage extends ConsumerStatefulWidget {
@@ -312,7 +313,11 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     if (!mounted) return;
 
     final lemma = wordData['lemma']?.toString() ?? normalized;
+    final preferences = ref.read(appPreferencesProvider);
     unawaited(_trackEvent('word_tap', articleId: _articleId, word: lemma));
+    if (preferences.autoPlayWordAudio) {
+      unawaited(_playWordPronunciation(lemma));
+    }
     final phonetic = wordData['phonetic']?.toString() ?? '-';
     final pos = wordData['pos']?.toString() ?? '-';
     final meaning = wordData['meaning_cn']?.toString() ?? '-';
@@ -440,7 +445,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 
-  Widget _buildInteractiveParagraph(String text) {
+  Widget _buildInteractiveParagraph(String text, double fontSize) {
     final tokenRegex = RegExp(r"[A-Za-z]+|[^A-Za-z]+");
     final wordRegex = RegExp(r"^[A-Za-z]+$");
     final tokens = tokenRegex.allMatches(text).map((m) => m.group(0) ?? '').toList();
@@ -455,7 +460,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
             child: Text(
               token,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: fontSize,
                 height: 1.7,
                 color: isAdded ? Colors.green.shade700 : Colors.blue.shade700,
                 decoration: TextDecoration.underline,
@@ -466,7 +471,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
 
         return Text(
           token,
-          style: const TextStyle(height: 1.7, fontSize: 16),
+          style: TextStyle(height: 1.7, fontSize: fontSize),
         );
       }).toList(),
     );
@@ -747,6 +752,8 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           _audioStatus = audioStatus;
           final paragraphIndex = paragraphs.isEmpty ? 1 : paragraphs.length;
           final quickWords = _extractTopWords(paragraphs);
+          final preferences = ref.watch(appPreferencesProvider);
+          final readingFontSize = preferences.readingBodyFontSize;
 
           return Padding(
             padding: const EdgeInsets.all(16),
@@ -851,7 +858,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                                           ),
                                       ],
                                     ),
-                                  _buildInteractiveParagraph(text),
+                                  _buildInteractiveParagraph(text, readingFontSize),
                                 ],
                               ),
                             ),
@@ -944,6 +951,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 }
+
 
 
 
