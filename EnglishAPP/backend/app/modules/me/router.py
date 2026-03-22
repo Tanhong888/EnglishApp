@@ -1,7 +1,7 @@
-from datetime import UTC, date, datetime, timedelta
+﻿from datetime import UTC, date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
@@ -99,8 +99,10 @@ def learning_records(
     ]
     return success(paginate(records, page=page, size=size))
 
+
 @router.get('/vocab')
 def me_vocab(
+    q: str | None = Query(default=None, min_length=1, max_length=50),
     source_article_id: int | None = None,
     mastered: bool | None = None,
     page: int = Query(default=1, ge=1),
@@ -112,9 +114,19 @@ def me_vocab(
         select(UserVocabEntry, Word)
         .join(Word, Word.id == UserVocabEntry.word_id)
         .where(UserVocabEntry.user_id == current_user.id)
-        .order_by(UserVocabEntry.created_at.desc())
+        .order_by(UserVocabEntry.created_at.desc(), UserVocabEntry.id.desc())
     )
 
+    keyword = q.strip() if q else None
+    if keyword:
+        fuzzy = f'%{keyword}%'
+        query = query.where(
+            or_(
+                Word.lemma.ilike(fuzzy),
+                Word.meaning_cn.ilike(fuzzy),
+                Word.pos.ilike(fuzzy),
+            )
+        )
     if source_article_id is not None:
         query = query.where(UserVocabEntry.source_article_id == source_article_id)
     if mastered is not None:
@@ -127,18 +139,69 @@ def me_vocab(
         if word.id not in grouped:
             grouped[word.id] = {
                 'word_id': word.id,
+                'latest_entry_id': entry.id,
                 'lemma': word.lemma,
+                'phonetic': word.phonetic,
+                'pos': word.pos,
+                'meaning_cn': word.meaning_cn,
                 'source_count': 0,
                 'latest_source_article_id': entry.source_article_id,
-                'mastered': entry.mastered,
+                'mastered': True,
             }
         grouped[word.id]['source_count'] += 1
-        if entry.source_article_id > grouped[word.id]['latest_source_article_id']:
-            grouped[word.id]['latest_source_article_id'] = entry.source_article_id
         grouped[word.id]['mastered'] = grouped[word.id]['mastered'] and entry.mastered
 
     items = list(grouped.values())
     return success(paginate(items, page=page, size=size))
+
+
+@router.get('/vocab/entries/{entry_id}')
+def me_vocab_entry_detail(
+    entry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    target = db.execute(
+        select(UserVocabEntry, Word)
+        .join(Word, Word.id == UserVocabEntry.word_id)
+        .where(UserVocabEntry.id == entry_id, UserVocabEntry.user_id == current_user.id)
+    ).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail='vocab entry not found')
+
+    entry, word = target
+    source_rows = db.execute(
+        select(UserVocabEntry, Article)
+        .join(Article, Article.id == UserVocabEntry.source_article_id)
+        .where(UserVocabEntry.user_id == current_user.id, UserVocabEntry.word_id == word.id)
+        .order_by(UserVocabEntry.created_at.desc(), UserVocabEntry.id.desc())
+    ).all()
+
+    sources = [
+        {
+            'entry_id': source_entry.id,
+            'source_article_id': article.id,
+            'source_article_title': article.title,
+            'mastered': source_entry.mastered,
+            'created_at': source_entry.created_at.isoformat(),
+            'updated_at': source_entry.updated_at.isoformat(),
+        }
+        for source_entry, article in source_rows
+    ]
+
+    return success(
+        {
+            'entry_id': entry.id,
+            'word_id': word.id,
+            'lemma': word.lemma,
+            'phonetic': word.phonetic,
+            'pos': word.pos,
+            'meaning_cn': word.meaning_cn,
+            'source_count': len(sources),
+            'mastered': all(item['mastered'] for item in sources),
+            'sources': sources,
+        }
+    )
 
 
 @router.get('/favorites')

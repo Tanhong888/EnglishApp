@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,8 +14,17 @@ class VocabPage extends ConsumerStatefulWidget {
 
 class _VocabPageState extends ConsumerState<VocabPage> {
   int? _sourceArticleId;
-  late Future<List<Map<String, dynamic>>> _future;
+  String _keyword = '';
+  late Future<void> _future;
   final Set<int> _updatingWordIds = <int>{};
+  final TextEditingController _searchController = TextEditingController();
+
+  static const int _pageSize = 20;
+  int _page = 1;
+  int _total = 0;
+  bool _hasNext = false;
+  bool _loadingMore = false;
+  List<Map<String, dynamic>> _items = const <Map<String, dynamic>>[];
 
   @override
   void initState() {
@@ -23,20 +32,45 @@ class _VocabPageState extends ConsumerState<VocabPage> {
     _future = _loadVocab();
   }
 
-  Future<List<Map<String, dynamic>>> _loadVocab() async {
-    final session = ref.read(sessionProvider);
-    if (!session.isAuthenticated) return const <Map<String, dynamic>>[];
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
-    final query = <String, String>{'page': '1', 'size': '20'};
+  Future<void> _loadVocab({bool loadMore = false}) async {
+    final session = ref.read(sessionProvider);
+    if (!session.isAuthenticated) {
+      _items = const <Map<String, dynamic>>[];
+      _page = 1;
+      _total = 0;
+      _hasNext = false;
+      return;
+    }
+
+    final targetPage = loadMore ? _page + 1 : 1;
+    final query = <String, String>{
+      'page': targetPage.toString(),
+      'size': _pageSize.toString(),
+    };
     if (_sourceArticleId != null) {
       query['source_article_id'] = _sourceArticleId.toString();
+    }
+    final trimmedKeyword = _keyword.trim();
+    if (trimmedKeyword.isNotEmpty) {
+      query['q'] = trimmedKeyword;
     }
 
     final api = ref.read(authApiProvider);
     final response = await api.get('/me/vocab', query: query, requiresAuth: true);
     final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final items = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
-    return items.map((raw) => raw.cast<String, dynamic>()).toList();
+    final rawItems = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
+    final fetchedItems = rawItems.map((raw) => raw.cast<String, dynamic>()).toList();
+
+    _items = loadMore ? <Map<String, dynamic>>[..._items, ...fetchedItems] : fetchedItems;
+    _page = (data['page'] as num?)?.toInt() ?? targetPage;
+    _total = (data['total'] as num?)?.toInt() ?? _items.length;
+    _hasNext = data['has_next'] as bool? ?? false;
   }
 
   Future<void> _refresh() async {
@@ -44,6 +78,46 @@ class _VocabPageState extends ConsumerState<VocabPage> {
       _future = _loadVocab();
     });
     await _future;
+  }
+
+
+  void _applySearch() {
+    final nextKeyword = _searchController.text.trim();
+    setState(() {
+      _keyword = nextKeyword;
+      _future = _loadVocab();
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _keyword = '';
+      _future = _loadVocab();
+    });
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasNext) return;
+
+    setState(() {
+      _loadingMore = true;
+    });
+
+    try {
+      await _loadVocab(loadMore: true);
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载更多失败：$e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingMore = false;
+        });
+      }
+    }
   }
 
   Future<void> _setWordMastered(int wordId, bool mastered) async {
@@ -79,6 +153,19 @@ class _VocabPageState extends ConsumerState<VocabPage> {
     }
   }
 
+  Widget _buildSourceChip(String label, int? articleId) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _sourceArticleId == articleId,
+      onSelected: (_) {
+        setState(() {
+          _sourceArticleId = articleId;
+          _future = _loadVocab();
+        });
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
@@ -89,13 +176,13 @@ class _VocabPageState extends ConsumerState<VocabPage> {
       body: session.isAuthenticated
           ? RefreshIndicator(
               onRefresh: _refresh,
-              child: FutureBuilder<List<Map<String, dynamic>>>(
+              child: FutureBuilder<void>(
                 future: _future,
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
+                  if (snapshot.connectionState != ConnectionState.done && _items.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  if (snapshot.hasError) {
+                  if (snapshot.hasError && _items.isEmpty) {
                     return ListView(
                       children: [
                         const SizedBox(height: 140),
@@ -104,65 +191,148 @@ class _VocabPageState extends ConsumerState<VocabPage> {
                     );
                   }
 
-                  final items = snapshot.data ?? const <Map<String, dynamic>>[];
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      TextField(
+                        controller: _searchController,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) => _applySearch(),
+                        decoration: InputDecoration(
+                          hintText: '搜索单词、中文释义或词性',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_searchController.text.isNotEmpty || _keyword.isNotEmpty)
+                                IconButton(
+                                  tooltip: '清空搜索',
+                                  onPressed: _clearSearch,
+                                  icon: const Icon(Icons.close),
+                                ),
+                              IconButton(
+                                tooltip: '开始搜索',
+                                onPressed: _applySearch,
+                                icon: const Icon(Icons.arrow_forward),
+                              ),
+                            ],
+                          ),
+                          filled: true,
+                          fillColor: Theme.of(context).colorScheme.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (_) {
+                          setState(() {});
+                        },
+                      ),
+                      if (_keyword.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '当前搜索：$_keyword',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          ChoiceChip(
-                            label: const Text('全部来源'),
-                            selected: _sourceArticleId == null,
-                            onSelected: (_) {
-                              setState(() {
-                                _sourceArticleId = null;
-                                _future = _loadVocab();
-                              });
-                            },
-                          ),
-                          ChoiceChip(
-                            label: const Text('文章 #1'),
-                            selected: _sourceArticleId == 1,
-                            onSelected: (_) {
-                              setState(() {
-                                _sourceArticleId = 1;
-                                _future = _loadVocab();
-                              });
-                            },
-                          ),
-                          ChoiceChip(
-                            label: const Text('文章 #2'),
-                            selected: _sourceArticleId == 2,
-                            onSelected: (_) {
-                              setState(() {
-                                _sourceArticleId = 2;
-                                _future = _loadVocab();
-                              });
-                            },
-                          ),
+                          _buildSourceChip('全部来源', null),
+                          _buildSourceChip('文章 #1', 1),
+                          _buildSourceChip('文章 #2', 2),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      ...items.map(
+                      ..._items.map(
                         (item) {
                           final wordId = (item['word_id'] as num?)?.toInt() ?? 0;
+                          final latestEntryId = (item['latest_entry_id'] as num?)?.toInt();
                           final mastered = item['mastered'] as bool? ?? false;
                           final updating = _updatingWordIds.contains(wordId);
+                          final phonetic = item['phonetic']?.toString();
+                          final pos = item['pos']?.toString();
+                          final meaning = item['meaning_cn']?.toString() ?? '-';
+                          final metaParts = <String>[
+                            if (phonetic != null && phonetic.isNotEmpty) '/$phonetic/',
+                            if (pos != null && pos.isNotEmpty) pos,
+                          ];
+
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 12),
                             child: Card(
-                              child: ListTile(
-                                title: Text(item['lemma']?.toString() ?? '-'),
-                                subtitle: Text(
-                                  '来源 ${item['source_count'] ?? 0} 篇 · 最新文章 #${item['latest_source_article_id'] ?? '-'}',
-                                ),
-                                trailing: OutlinedButton(
-                                  onPressed: updating
-                                      ? null
-                                      : () => _setWordMastered(wordId, !mastered),
-                                  child: Text(
-                                    updating ? '更新中...' : (mastered ? '取消掌握' : '标记掌握'),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: latestEntryId == null ? null : () => context.push('/vocab/$latestEntryId'),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              item['lemma']?.toString() ?? '-',
+                                              style: Theme.of(context).textTheme.titleMedium,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: mastered
+                                                  ? Colors.green.withOpacity(0.12)
+                                                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                              borderRadius: BorderRadius.circular(999),
+                                            ),
+                                            child: Text(mastered ? '已掌握' : '待复习'),
+                                          ),
+                                        ],
+                                      ),
+                                      if (metaParts.isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          metaParts.join(' · '),
+                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        meaning,
+                                        style: Theme.of(context).textTheme.bodyLarge,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '来源 ${item['source_count'] ?? 0} 篇 · 最新文章 #${item['latest_source_article_id'] ?? '-'}',
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          OutlinedButton(
+                                            onPressed: latestEntryId == null
+                                                ? null
+                                                : () => context.push('/vocab/$latestEntryId'),
+                                            child: const Text('查看详情'),
+                                          ),
+                                          OutlinedButton(
+                                            onPressed: updating ? null : () => _setWordMastered(wordId, !mastered),
+                                            child: Text(updating ? '更新中...' : (mastered ? '取消掌握' : '标记掌握')),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -170,11 +340,44 @@ class _VocabPageState extends ConsumerState<VocabPage> {
                           );
                         },
                       ),
-                      if (items.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 24),
-                          child: Center(child: Text('暂无生词数据')),
+                      if (_items.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 24),
+                          child: Center(
+                            child: Text(_keyword.isEmpty ? '暂无生词数据' : '没有找到匹配“$_keyword”的生词'),
+                          ),
+                        )
+                      else ...[
+                        const SizedBox(height: 8),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  '已加载 ${_items.length} / $_total 条 · 第 $_page 页 · 每页 $_pageSize 条',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                                if (_hasNext)
+                                  FilledButton(
+                                    onPressed: _loadingMore ? null : _loadMore,
+                                    child: Text(_loadingMore ? '加载中...' : '加载更多'),
+                                  )
+                                else
+                                  Text(
+                                    '已经到底了',
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
+                      ],
                     ],
                   );
                 },
@@ -190,3 +393,4 @@ class _VocabPageState extends ConsumerState<VocabPage> {
     );
   }
 }
+

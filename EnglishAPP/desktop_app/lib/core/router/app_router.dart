@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/analysis/analysis_page.dart';
@@ -12,6 +12,7 @@ import '../../features/me/learning_records_page.dart';
 import '../../features/me/me_page.dart';
 import '../../features/quiz/quiz_page.dart';
 import '../../features/quiz/quiz_result_page.dart';
+import '../../features/vocab/vocab_detail_page.dart';
 import '../../features/vocab/vocab_page.dart';
 import '../../shared/widgets/splash_page.dart';
 
@@ -40,6 +41,10 @@ class AppRouter {
         builder: (_, state) => QuizResultPage(attemptId: state.pathParameters['attemptId']!),
       ),
       GoRoute(path: '/vocab', builder: (_, __) => const VocabPage()),
+      GoRoute(
+        path: '/vocab/:entryId',
+        builder: (_, state) => VocabDetailPage(entryId: state.pathParameters['entryId']!),
+      ),
       GoRoute(path: '/me', builder: (_, __) => const MePage()),
       GoRoute(path: '/me/analytics', builder: (_, __) => const MeAnalyticsPage()),
       GoRoute(path: '/me/favorites', builder: (_, __) => const FavoritesPage()),
@@ -50,5 +55,3 @@ class AppRouter {
     ),
   );
 }
-
-

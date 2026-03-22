@@ -1,4 +1,4 @@
-from uuid import uuid4
+﻿from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -310,6 +310,69 @@ def test_vocab_word_mastered_update_by_source(client: TestClient) -> None:
 
 
 
+def test_me_vocab_list_includes_word_meta_and_latest_entry_id(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    response = client.get('/api/v1/me/vocab', headers=headers)
+    assert response.status_code == 200
+
+    items = response.json()['data']['items']
+    consolidate = next(item for item in items if item['word_id'] == 1)
+
+    assert consolidate['latest_entry_id'] >= 1
+    assert consolidate['lemma'] == 'consolidate'
+    assert consolidate['phonetic'] == 'kənˈsɑːlɪdeɪt'
+    assert consolidate['pos'] == 'vt.'
+    assert consolidate['meaning_cn'] == '巩固'
+    assert consolidate['source_count'] == 2
+
+
+
+def test_me_vocab_search_filters_by_lemma_and_meaning(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    by_lemma = client.get('/api/v1/me/vocab', params={'q': 'consolidate'}, headers=headers)
+    assert by_lemma.status_code == 200
+    lemma_items = by_lemma.json()['data']['items']
+    assert len(lemma_items) == 1
+    assert lemma_items[0]['lemma'] == 'consolidate'
+
+    by_meaning = client.get('/api/v1/me/vocab', params={'q': '公平'}, headers=headers)
+    assert by_meaning.status_code == 200
+    meaning_items = by_meaning.json()['data']['items']
+    assert len(meaning_items) == 1
+    assert meaning_items[0]['lemma'] == 'equity'
+
+
+
+def test_me_vocab_entry_detail_contract(client: TestClient) -> None:
+    tokens = login_and_get_tokens(client)
+    headers = make_headers(tokens['access_token'])
+
+    vocab_list_response = client.get('/api/v1/me/vocab', headers=headers)
+    assert vocab_list_response.status_code == 200
+    entry_id = next(item['latest_entry_id'] for item in vocab_list_response.json()['data']['items'] if item['word_id'] == 1)
+
+    detail_response = client.get(f'/api/v1/me/vocab/entries/{entry_id}', headers=headers)
+    assert detail_response.status_code == 200
+
+    data = detail_response.json()['data']
+    assert data['entry_id'] == entry_id
+    assert data['word_id'] == 1
+    assert data['lemma'] == 'consolidate'
+    assert data['phonetic'] == 'kənˈsɑːlɪdeɪt'
+    assert data['pos'] == 'vt.'
+    assert data['meaning_cn'] == '巩固'
+    assert data['source_count'] == 2
+    assert data['mastered'] is False
+    assert len(data['sources']) == 2
+    assert {source['source_article_id'] for source in data['sources']} == {1, 2}
+    assert all(source['source_article_title'] for source in data['sources'])
+
+
+
 def test_article_audio_failed_contract(client: TestClient) -> None:
     response = client.get('/api/v1/articles/3/audio')
     assert response.status_code == 200
@@ -608,3 +671,5 @@ def test_quiz_submit_rate_limit(client: TestClient) -> None:
     finally:
         quiz_module.QUIZ_SUBMIT_LIMIT_PER_MINUTE = original_limit
         quiz_module.reset_quiz_submit_rate_limit_state_for_test()
+
+
