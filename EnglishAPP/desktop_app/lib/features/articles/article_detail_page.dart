@@ -26,6 +26,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   final TextEditingController _wordController = TextEditingController();
   final Set<String> _addedWords = <String>{};
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _wordAudioPlayer = AudioPlayer();
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<Duration>? _positionSub;
   String? _articleAudioUrl;
@@ -75,6 +76,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     _playerStateSub?.cancel();
     _positionSub?.cancel();
     unawaited(_audioPlayer.dispose());
+    unawaited(_wordAudioPlayer.dispose());
     _wordController.dispose();
     super.dispose();
   }
@@ -197,6 +199,54 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final response = await publicApi.get('/words/${Uri.encodeComponent(word.trim().toLowerCase())}');
     return (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
   }
+  Future<void> _trackEvent(
+    String eventName, {
+    int? articleId,
+    String? word,
+    Map<String, dynamic>? contextData,
+  }) async {
+    final api = ref.read(apiClientProvider);
+    final session = ref.read(sessionProvider);
+
+    try {
+      await api.post(
+        '/analytics/events',
+        body: {
+          'event_name': eventName,
+          'user_id': (session.user?['id'] as num?)?.toInt(),
+          'article_id': articleId,
+          'word': word,
+          'context': contextData,
+        },
+      );
+    } catch (_) {
+      // Analytics should never block core user flows.
+    }
+  }
+  Future<void> _playWordPronunciation(String lemma) async {
+    final normalized = lemma.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    unawaited(_trackEvent('word_pronunciation_tap', articleId: _articleId, word: normalized));
+    final publicApi = ref.read(apiClientProvider);
+    try {
+      final response = await publicApi.get('/words/${Uri.encodeComponent(normalized)}/pronunciation');
+      final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final audioUrl = data['audio_url']?.toString() ?? '';
+      if (audioUrl.isEmpty) {
+        throw Exception('audio_url_missing');
+      }
+
+      await _wordAudioPlayer.stop();
+      await _wordAudioPlayer.setUrl(audioUrl);
+      await _wordAudioPlayer.play();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('单词发音失败：$e')));
+    }
+  }
 
   Future<bool> _addWordToVocab({
     required int wordId,
@@ -262,6 +312,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     if (!mounted) return;
 
     final lemma = wordData['lemma']?.toString() ?? normalized;
+    unawaited(_trackEvent('word_tap', articleId: _articleId, word: lemma));
     final phonetic = wordData['phonetic']?.toString() ?? '-';
     final pos = wordData['pos']?.toString() ?? '-';
     final meaning = wordData['meaning_cn']?.toString() ?? '-';
@@ -291,11 +342,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                   Text('释义：$meaning'),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(sheetContext).showSnackBar(
-                        const SnackBar(content: Text('单词发音能力即将接入 Windows 端')),
-                      );
-                    },
+                    onPressed: () => _playWordPronunciation(lemma),
                     icon: const Icon(Icons.volume_up_rounded),
                     label: const Text('发音'),
                   ),
@@ -579,6 +626,13 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       setState(() {
         _isFavorited = !_isFavorited;
       });
+      unawaited(
+        _trackEvent(
+          'favorite_toggle',
+          articleId: _articleId,
+          contextData: <String, dynamic>{'favorite': _isFavorited},
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('收藏操作失败：$e')));
@@ -890,4 +944,6 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     );
   }
 }
+
+
 

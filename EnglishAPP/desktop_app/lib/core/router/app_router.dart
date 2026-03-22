@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/analysis/analysis_page.dart';
@@ -6,7 +6,9 @@ import '../../features/articles/article_detail_page.dart';
 import '../../features/articles/articles_page.dart';
 import '../../features/auth/login_page.dart';
 import '../../features/home/home_page.dart';
+import '../../features/me/analytics_page.dart';
 import '../../features/me/favorites_page.dart';
+import '../../features/me/learning_records_page.dart';
 import '../../features/me/me_page.dart';
 import '../../features/quiz/quiz_page.dart';
 import '../../features/quiz/quiz_result_page.dart';
@@ -39,10 +41,14 @@ class AppRouter {
       ),
       GoRoute(path: '/vocab', builder: (_, __) => const VocabPage()),
       GoRoute(path: '/me', builder: (_, __) => const MePage()),
+      GoRoute(path: '/me/analytics', builder: (_, __) => const MeAnalyticsPage()),
       GoRoute(path: '/me/favorites', builder: (_, __) => const FavoritesPage()),
+      GoRoute(path: '/me/learning-records', builder: (_, __) => const LearningRecordsPage()),
     ],
     errorBuilder: (_, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.uri.toString()}')),
     ),
   );
 }
+
+

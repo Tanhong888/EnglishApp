@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,6 +20,8 @@ class _QuizPageState extends ConsumerState<QuizPage> {
   final Map<int, String> _answers = <int, String>{};
   bool _submitting = false;
 
+  int get _articleId => int.tryParse(widget.articleId) ?? 0;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +34,29 @@ class _QuizPageState extends ConsumerState<QuizPage> {
     final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final questions = (data['questions'] as List?)?.cast<Map>() ?? const <Map>[];
     return questions.map((raw) => raw.cast<String, dynamic>()).toList();
+  }
+
+  Future<void> _trackEvent(
+    String eventName, {
+    int? articleId,
+    Map<String, dynamic>? contextData,
+  }) async {
+    final api = ref.read(apiClientProvider);
+    final session = ref.read(sessionProvider);
+
+    try {
+      await api.post(
+        '/analytics/events',
+        body: {
+          'event_name': eventName,
+          'user_id': (session.user?['id'] as num?)?.toInt(),
+          'article_id': articleId,
+          'context': contextData,
+        },
+      );
+    } catch (_) {
+      // Analytics should never block core user flows.
+    }
   }
 
   Future<void> _submit(List<Map<String, dynamic>> questions) async {
@@ -62,7 +89,7 @@ class _QuizPageState extends ConsumerState<QuizPage> {
       final response = await api.post(
         '/quiz/submit',
         body: {
-          'article_id': int.tryParse(widget.articleId) ?? 0,
+          'article_id': _articleId,
           'answers': payloadAnswers,
         },
       );
@@ -71,6 +98,18 @@ class _QuizPageState extends ConsumerState<QuizPage> {
       if (attemptId == null) {
         throw Exception('missing_attempt_id');
       }
+
+      unawaited(
+        _trackEvent(
+          'quiz_submit',
+          articleId: _articleId,
+          contextData: <String, dynamic>{
+            'question_count': questions.length,
+            'answered_count': _answers.length,
+          },
+        ),
+      );
+
       if (!mounted) return;
       context.go('/quiz/attempts/$attemptId/result');
     } catch (e) {

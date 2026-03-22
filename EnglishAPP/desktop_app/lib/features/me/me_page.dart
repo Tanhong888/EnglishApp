@@ -42,6 +42,7 @@ class _MePageState extends ConsumerState<MePage> {
         'stats': <String, dynamic>{},
         'learning_records': <Map<String, dynamic>>[],
         'recent_reading': <Map<String, dynamic>>[],
+        'analytics_summary': <String, dynamic>{},
       };
     }
 
@@ -56,8 +57,14 @@ class _MePageState extends ConsumerState<MePage> {
         requiresAuth: true,
         query: _learningRecordQuery(),
       );
-      final recordsData = (recordsResp['data'] as List?)?.cast<Map>() ?? const <Map>[];
-      learningRecords = recordsData.map((raw) => raw.cast<String, dynamic>()).toList();
+      final recordsPayload = recordsResp['data'];
+      if (recordsPayload is Map) {
+        final recordsData = (recordsPayload['items'] as List?)?.cast<Map>() ?? const <Map>[];
+        learningRecords = recordsData.map((raw) => raw.cast<String, dynamic>()).toList();
+      } else {
+        final recordsData = (recordsPayload as List?)?.cast<Map>() ?? const <Map>[];
+        learningRecords = recordsData.map((raw) => raw.cast<String, dynamic>()).toList();
+      }
     } catch (_) {
       learningRecords = <Map<String, dynamic>>[];
     }
@@ -71,10 +78,23 @@ class _MePageState extends ConsumerState<MePage> {
       recentReading = <Map<String, dynamic>>[];
     }
 
+    var analyticsSummary = <String, dynamic>{};
+    try {
+      final summaryResp = await api.get(
+        '/analytics/dashboard/summary',
+        requiresAuth: true,
+        query: {'days': '7'},
+      );
+      analyticsSummary = (summaryResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    } catch (_) {
+      analyticsSummary = <String, dynamic>{};
+    }
+
     return {
       'stats': stats,
       'learning_records': learningRecords,
       'recent_reading': recentReading,
+      'analytics_summary': analyticsSummary,
     };
   }
 
@@ -173,6 +193,10 @@ class _MePageState extends ConsumerState<MePage> {
                 (data['learning_records'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
             final recentReading =
                 (data['recent_reading'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+            final analyticsSummary =
+                (data['analytics_summary'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+            final eventCounts =
+                (analyticsSummary['event_counts'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -192,6 +216,34 @@ class _MePageState extends ConsumerState<MePage> {
                         Text('生词收藏 ${stats['vocab_count'] ?? 0} 个'),
                         const SizedBox(height: 6),
                         Text('完读率 ${(stats['completion_rate'] ?? 0).toString()}'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('近7天行为指标', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        Text('事件总数 ${analyticsSummary['event_total'] ?? 0}'),
+                        const SizedBox(height: 6),
+                        Text('活跃用户 ${analyticsSummary['dau'] ?? 0}'),
+                        const SizedBox(height: 6),
+                        Text('点词 ${eventCounts['word_tap'] ?? 0} · 发音 ${eventCounts['word_pronunciation_tap'] ?? 0}'),
+                        const SizedBox(height: 6),
+                        Text('收藏切换 ${eventCounts['favorite_toggle'] ?? 0} · 小测提交 ${eventCounts['quiz_submit'] ?? 0}'),
+                        const SizedBox(height: 4),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => context.go('/me/analytics'),
+                            child: const Text('查看行为详情'),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -231,6 +283,13 @@ class _MePageState extends ConsumerState<MePage> {
                       title: Text(item['date']?.toString() ?? '-'),
                       subtitle: Text('阅读 ${item['articles'] ?? 0} 篇 · 约 ${item['minutes'] ?? 0} 分钟'),
                     ),
+                  ),
+                ),
+                Card(
+                  child: ListTile(
+                    title: const Text('查看全部学习记录'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () => context.go('/me/learning-records'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -285,3 +344,7 @@ class _MePageState extends ConsumerState<MePage> {
     );
   }
 }
+
+
+
+
