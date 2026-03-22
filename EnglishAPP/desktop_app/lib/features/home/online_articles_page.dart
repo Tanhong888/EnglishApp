@@ -2,6 +2,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/platform/external_link_opener.dart';
 import '../../core/state/session_controller.dart';
 
 class OnlineArticlesPage extends ConsumerStatefulWidget {
@@ -89,6 +90,16 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('原文链接已复制')));
+  }
+
+  Future<void> _openUrl(String url) async {
+    final opened = await openExternalUrl(url);
+    if (!mounted) return;
+    if (!opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂时无法自动打开浏览器，请先复制链接')),
+      );
+    }
   }
 
   @override
@@ -196,6 +207,7 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                 ...items.map(
                   (item) {
                     final summary = (item['summary']?.toString() ?? '').trim();
+                    final url = item['url']?.toString() ?? '';
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Card(
@@ -204,9 +216,14 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                item['title']?.toString() ?? '-',
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                              TextButton(
+                                onPressed: url.isEmpty ? null : () => _openUrl(url),
+                                style: TextButton.styleFrom(padding: EdgeInsets.zero, alignment: Alignment.centerLeft),
+                                child: Text(
+                                  item['title']?.toString() ?? '-',
+                                  textAlign: TextAlign.left,
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
@@ -217,17 +234,26 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                               Text(summary.isNotEmpty ? summary : '当前源未提供摘要，请复制原文链接查看。'),
                               const SizedBox(height: 12),
                               SelectableText(
-                                item['url']?.toString() ?? '-',
+                                url.isNotEmpty ? url : '-',
                                 style: const TextStyle(color: Color(0xFF3554A5)),
                               ),
                               const SizedBox(height: 10),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: OutlinedButton.icon(
-                                  onPressed: item['url'] == null ? null : () => _copyUrl(item['url'].toString()),
-                                  icon: const Icon(Icons.link, size: 18),
-                                  label: const Text('复制原文链接'),
-                                ),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.end,
+                                children: [
+                                  FilledButton.icon(
+                                    onPressed: url.isEmpty ? null : () => _openUrl(url),
+                                    icon: const Icon(Icons.open_in_browser, size: 18),
+                                    label: const Text('打开原文'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: url.isEmpty ? null : () => _copyUrl(url),
+                                    icon: const Icon(Icons.link, size: 18),
+                                    label: const Text('复制链接'),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
