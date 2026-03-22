@@ -1,6 +1,7 @@
-﻿from fastapi import APIRouter
+from fastapi import APIRouter
 
 from app.modules.analysis.router import router as analysis_router
+from app.modules.analytics.router import router as analytics_router
 from app.modules.auth.router import router as auth_router
 from app.modules.content.router import router as content_router
 from app.modules.health.router import router as health_router
@@ -22,5 +23,7 @@ api_router.include_router(reading_router, prefix='/reading', tags=['reading'])
 api_router.include_router(vocab_router, prefix='/vocab', tags=['vocab'])
 api_router.include_router(words_router, prefix='/words', tags=['words'])
 api_router.include_router(analysis_router, prefix='/articles', tags=['analysis'])
+api_router.include_router(analytics_router, prefix='/analytics', tags=['analytics'])
 api_router.include_router(quiz_router, tags=['quiz'])
 api_router.include_router(me_router, prefix='/me', tags=['me'])
+

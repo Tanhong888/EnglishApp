@@ -1,6 +1,6 @@
-﻿from datetime import datetime
+from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -63,6 +63,76 @@ class ArticleParagraph(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class SentenceAnalysis(Base):
+    __tablename__ = "sentence_analyses"
+    __table_args__ = (
+        UniqueConstraint("article_id", "sentence_index", name="uq_sentence_analysis_article_index"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True)
+    sentence_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    sentence: Mapped[str] = mapped_column(Text, nullable=False)
+    translation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    structure: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class Quiz(Base):
+    __tablename__ = "quizzes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class QuizQuestion(Base):
+    __tablename__ = "quiz_questions"
+    __table_args__ = (UniqueConstraint("quiz_id", "question_index", name="uq_quiz_question_index"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    stem: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
+class QuizOption(Base):
+    __tablename__ = "quiz_options"
+    __table_args__ = (UniqueConstraint("question_id", "option_index", name="uq_quiz_option_index"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    option_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class UserQuizAttempt(Base):
+    __tablename__ = "user_quiz_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True)
+    correct_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
+class UserQuizAnswer(Base):
+    __tablename__ = "user_quiz_answers"
+    __table_args__ = (UniqueConstraint("attempt_id", "question_id", name="uq_attempt_question"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("user_quiz_attempts.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("quiz_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    selected_option: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
 class Word(Base):
     __tablename__ = "words"
 
@@ -109,3 +179,14 @@ class UserReadingProgress(Base):
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     paragraph_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     last_read_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+class AnalyticsEvent(Base):
+    __tablename__ = "analytics_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    event_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    article_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    word: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    context_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

@@ -153,6 +153,31 @@ def test_sentence_analysis_endpoint(client: TestClient) -> None:
     assert isinstance(data['items'], list)
     assert len(data['items']) >= 1
 
+    first = data['items'][0]
+    assert 'sentence_id' in first
+    assert first['sentence']
+    assert first['translation']
+    assert first['structure']
+
+
+def test_sentence_analysis_article_not_found(client: TestClient) -> None:
+    response = client.get('/api/v1/articles/99999/sentence-analyses')
+    assert response.status_code == 404
+
+
+
+def test_quiz_not_found(client: TestClient) -> None:
+    quiz_response = client.get('/api/v1/articles/99999/quiz')
+    assert quiz_response.status_code == 404
+
+    submit_response = client.post(
+        '/api/v1/quiz/submit',
+        json={
+            'article_id': 99999,
+            'answers': [],
+        },
+    )
+    assert submit_response.status_code == 404
 
 def test_quiz_flow_endpoints(client: TestClient) -> None:
     quiz_response = client.get('/api/v1/articles/1/quiz')
@@ -300,19 +325,28 @@ def test_learning_records_time_filters(client: TestClient) -> None:
 
     all_response = client.get('/api/v1/me/learning-records', headers=headers)
     assert all_response.status_code == 200
-    all_items = all_response.json()['data']
+    all_data = all_response.json()['data']
+    all_items = all_data['items']
+    assert all_data['page'] == 1
+    assert all_data['size'] == 20
+    assert 'total' in all_data
+    assert 'has_next' in all_data
     assert isinstance(all_items, list)
     assert len(all_items) >= 1
 
     recent_response = client.get('/api/v1/me/learning-records', params={'days': 1}, headers=headers)
     assert recent_response.status_code == 200
-    recent_items = recent_response.json()['data']
+    recent_data = recent_response.json()['data']
+    recent_items = recent_data['items']
+    assert recent_data['page'] == 1
     assert isinstance(recent_items, list)
     assert len(recent_items) >= 1
 
     future_response = client.get('/api/v1/me/learning-records', params={'date_from': '2999-01-01'}, headers=headers)
     assert future_response.status_code == 200
-    assert future_response.json()['data'] == []
+    future_data = future_response.json()['data']
+    assert future_data['items'] == []
+    assert future_data['total'] == 0
 
 def test_article_audio_ready_contract(client: TestClient) -> None:
     response = client.get('/api/v1/articles/2/audio')
@@ -344,3 +378,44 @@ def test_article_audio_ready_contract(client: TestClient) -> None:
         previous_end = item['end']
 
 
+
+def test_word_pronunciation_endpoint(client: TestClient) -> None:
+    response = client.get('/api/v1/words/consolidate/pronunciation')
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['lemma'] == 'consolidate'
+    assert data['provider'] == 'youdao'
+    assert data['audio_url'].startswith('https://dict.youdao.com/dictvoice')
+
+
+
+def test_analytics_track_and_list(client: TestClient) -> None:
+    create_response = client.post(
+        '/api/v1/analytics/events',
+        json={
+            'event_name': 'word_tap',
+            'user_id': 1,
+            'article_id': 2,
+            'word': 'Consolidate',
+            'context': {'from': 'article_detail', 'position': 3},
+        },
+    )
+    assert create_response.status_code == 200
+    create_data = create_response.json()['data']
+    assert create_data['event_name'] == 'word_tap'
+    event_id = create_data['event_id']
+
+    list_response = client.get('/api/v1/analytics/events', params={'event_name': 'word_tap', 'limit': 10})
+    assert list_response.status_code == 200
+    items = list_response.json()['data']['items']
+    assert isinstance(items, list)
+    assert any(item['event_id'] == event_id for item in items)
+
+    summary_response = client.get('/api/v1/analytics/dashboard/summary', params={'days': 7})
+    assert summary_response.status_code == 200
+    summary_data = summary_response.json()['data']
+    assert summary_data['window_days'] == 7
+    assert summary_data['event_total'] >= 1
+    assert summary_data['dau'] >= 1
+    assert summary_data['event_counts']['word_tap'] >= 1
+    assert isinstance(summary_data['timeline'], list)
