@@ -13,10 +13,12 @@ class AdminConsolePage extends ConsumerStatefulWidget {
 
 class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
   final TextEditingController _adminKeyController = TextEditingController();
+  final TextEditingController _articleSearchController = TextEditingController();
   final TextEditingController _wordSearchController = TextEditingController();
   late Future<Map<String, dynamic>> _articlesFuture;
   late Future<Map<String, dynamic>> _wordsFuture;
   bool? _publishedFilter;
+  String _articleQuery = '';
   String _wordQuery = '';
   bool _savingAdminKey = false;
   bool _adminKeyLoaded = false;
@@ -45,6 +47,7 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
   @override
   void dispose() {
     _adminKeyController.dispose();
+    _articleSearchController.dispose();
     _wordSearchController.dispose();
     super.dispose();
   }
@@ -64,6 +67,9 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
     final query = <String, String>{'page': '1', 'size': '20'};
     if (_publishedFilter != null) {
       query['published'] = _publishedFilter.toString();
+    }
+    if (_articleQuery.trim().isNotEmpty) {
+      query['q'] = _articleQuery.trim();
     }
     final response = await api.get('/admin/articles', query: query);
     return (response['data'] as Map?)?.cast<String, dynamic>() ?? _emptyPagedResult();
@@ -314,7 +320,7 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
         Row(
           children: [
             ChoiceChip(
-              label: const Text('全部文章'),
+              label: const Text('????'),
               selected: _publishedFilter == null,
               onSelected: (_) {
                 setState(() {
@@ -325,7 +331,7 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
             ),
             const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('仅已发布'),
+              label: const Text('????'),
               selected: _publishedFilter == true,
               onSelected: (_) {
                 setState(() {
@@ -336,7 +342,7 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
             ),
             const SizedBox(width: 8),
             ChoiceChip(
-              label: const Text('仅草稿'),
+              label: const Text('???'),
               selected: _publishedFilter == false,
               onSelected: (_) {
                 setState(() {
@@ -349,15 +355,41 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
             OutlinedButton.icon(
               onPressed: _reloadArticles,
               icon: const Icon(Icons.refresh),
-              label: const Text('刷新'),
+              label: const Text('??'),
             ),
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: () => _openArticleEditor(),
               icon: const Icon(Icons.add),
-              label: const Text('新建文章'),
+              label: const Text('????'),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _articleSearchController,
+          decoration: InputDecoration(
+            hintText: 'Search title, summary, topic, or source URL',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _articleQuery.isEmpty
+                ? null
+                : IconButton(
+                    onPressed: () {
+                      _articleSearchController.clear();
+                      setState(() {
+                        _articleQuery = '';
+                        _articlesFuture = _loadArticles();
+                      });
+                    },
+                    icon: const Icon(Icons.clear),
+                  ),
+          ),
+          onSubmitted: (value) {
+            setState(() {
+              _articleQuery = value.trim();
+              _articlesFuture = _loadArticles();
+            });
+          },
         ),
         const SizedBox(height: 12),
         Expanded(
@@ -383,6 +415,8 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
                 itemBuilder: (context, index) {
                   final article = items[index].cast<String, dynamic>();
                   final published = article['is_published'] as bool? ?? false;
+                  final summary = article['summary']?.toString().trim() ?? '';
+                  final sourceUrl = article['source_url']?.toString().trim() ?? '';
                   return Card(
                     child: ListTile(
                       title: Text(article['title']?.toString() ?? '-'),
@@ -391,15 +425,33 @@ class _AdminConsolePageState extends ConsumerState<AdminConsolePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${article['stage']} · Level ${article['level']} · ${article['topic']}'),
-                            const SizedBox(height: 4),
+                            Text('${article['stage']} - Level ${article['level']} - ${article['topic']}'),
+                            if (summary.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                summary,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.black87),
+                              ),
+                            ],
+                            if (sourceUrl.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                sourceUrl,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Color(0xFF3554A5)),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                Chip(label: Text(published ? '已发布' : '草稿')),
-                                Chip(label: Text('段落 ${article['paragraph_count'] ?? 0}')),
-                                Chip(label: Text('音频 ${article['audio_status'] ?? 'pending'}')),
+                                Chip(label: Text(published ? 'Published' : 'Draft')),
+                                Chip(label: Text('Paragraphs ${article['paragraph_count'] ?? 0}')),
+                                Chip(label: Text('Audio ${article['audio_status'] ?? 'pending'}')),
                               ],
                             ),
                           ],

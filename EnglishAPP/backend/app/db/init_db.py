@@ -4,6 +4,13 @@ from sqlalchemy.orm import Session
 from app.core.constants import DEMO_USER_ID
 from app.core.security import hash_password
 from app.db.base import Base
+from app.db.article_content_sync import (
+    ensure_article_slug,
+    ensure_article_source,
+    summarize_paragraphs,
+    sync_article_content_snapshot,
+    sync_reading_progress_completion,
+)
 from app.db.models import (
     Article,
     ArticleParagraph,
@@ -108,10 +115,14 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
         if article is None:
             article = Article(
                 title=spec['title'],
+                slug=None,
                 stage_tag=spec['stage_tag'],
                 level=spec['level'],
                 topic=spec['topic'],
+                summary=None,
                 reading_minutes=spec['reading_minutes'],
+                status='published',
+                source_url=None,
                 is_completed=spec['is_completed'],
                 audio_status=spec['audio_status'],
                 article_audio_url=spec['article_audio_url'],
@@ -125,6 +136,7 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
             article.level = spec['level']
             article.topic = spec['topic']
             article.reading_minutes = spec['reading_minutes']
+            article.status = 'published'
             article.is_completed = spec['is_completed']
             article.audio_status = spec['audio_status']
             article.article_audio_url = spec['article_audio_url']
@@ -155,6 +167,17 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
         for paragraph in existing_paragraphs:
             if paragraph.paragraph_index not in desired_indices:
                 db.delete(paragraph)
+
+        ensure_article_slug(db, article)
+        article.summary = summarize_paragraphs(spec['paragraphs'])
+        ensure_article_source(
+            db,
+            article=article,
+            source_type='seed',
+            source_name='demo_seed',
+            source_url=article.source_url,
+        )
+        sync_article_content_snapshot(db, article=article, paragraphs=spec['paragraphs'])
 
     db.flush()
     return article_by_title
@@ -197,13 +220,19 @@ def _ensure_demo_learning_data(db: Session, article_by_title: dict[str, Article]
             )
         )
         if existing is None:
-            db.add(
-                UserReadingProgress(
-                    user_id=DEMO_USER_ID,
-                    article_id=article.id,
-                    paragraph_index=paragraph_index,
-                )
+            existing = UserReadingProgress(
+                user_id=DEMO_USER_ID,
+                article_id=article.id,
+                paragraph_index=paragraph_index,
             )
+            db.add(existing)
+
+        sync_reading_progress_completion(
+            db,
+            progress=existing,
+            article=article,
+            completed_at_fallback=existing.last_read_at,
+        )
 
     favorite_article = article_by_title['How Sleep Shapes Memory']
     favorite = db.scalar(

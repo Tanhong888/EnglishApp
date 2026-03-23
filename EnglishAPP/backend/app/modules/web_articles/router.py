@@ -1,17 +1,62 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 import re
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.response import success
+from app.db.article_content_sync import count_english_words, ensure_article_slug, ensure_article_source, sync_article_content_snapshot
+from app.db.models import Article, ArticleParagraph, ArticleSource
+from app.db.session import get_db
 
 router = APIRouter()
+
+
+class ImportWebArticleRequest(BaseModel):
+    title: str
+    url: str
+    source: str
+    summary: str | None = None
+    published_at: str | None = None
+    stage_tag: str | None = None
+    level: int | None = Field(default=None, ge=1, le=4)
+    topic: str | None = None
+    force_new: bool = False
+
+    @field_validator('title', 'url', 'source')
+    @classmethod
+    def validate_non_empty_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError('field cannot be empty')
+        return cleaned
+
+    @field_validator('summary', 'published_at', 'stage_tag', 'topic')
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+def require_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
+    expected_key = settings.admin_api_key.strip()
+    if not expected_key:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='admin_api_key_not_configured')
+    if x_admin_key is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='missing_admin_key')
+    if x_admin_key != expected_key:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='invalid_admin_key')
 
 
 def _feed_urls() -> list[str]:
@@ -198,6 +243,66 @@ def aggregate_feed_items(query: str | None = None) -> tuple[list[dict], list[str
     return results, failed_sources
 
 
+def _estimate_reading_minutes(summary: str | None) -> int:
+    words = count_english_words(summary or '')
+    if words <= 0:
+        return 1
+    return max(1, min(30, round(words / 180)))
+
+
+def _import_paragraphs(summary: str | None) -> list[str]:
+    if summary and summary.strip():
+        return [summary.strip()]
+    return ['Imported from web feed. Summary unavailable; please edit before publishing.']
+
+
+def _infer_import_metadata(source: str, url: str, title: str, summary: str | None) -> tuple[str, str, int]:
+    host = urlparse(url).netloc.lower()
+    haystack = ' '.join([source, host, title, summary or '']).lower()
+
+    stage_tag = 'cet6'
+    level = 2
+    if any(token in haystack for token in ['learning english', 'bbc learning english', 'voa learning english']):
+        stage_tag = 'cet4'
+        level = 1
+
+    domain_topics = {
+        'techcrunch.com': 'technology',
+        'theverge.com': 'technology',
+        'wired.com': 'technology',
+        'arstechnica.com': 'technology',
+        'espn.com': 'sports',
+        'skysports.com': 'sports',
+        'nature.com': 'science',
+        'sciencedaily.com': 'science',
+        'medicalnewstoday.com': 'health',
+        'wsj.com': 'business',
+        'ft.com': 'business',
+        'bloomberg.com': 'business',
+        'economist.com': 'business',
+        'edsurge.com': 'education',
+    }
+    for domain, topic in domain_topics.items():
+        if domain in host:
+            return topic, stage_tag, level
+
+    keyword_topics = [
+        ('science', ['science', 'research', 'space', 'physics', 'biology', 'npr science']),
+        ('technology', ['technology', 'tech', 'ai', 'software', 'startup', 'cyber']),
+        ('business', ['business', 'economy', 'market', 'finance', 'trade', 'inflation']),
+        ('education', ['education', 'school', 'student', 'teacher', 'learning', 'university']),
+        ('health', ['health', 'medical', 'medicine', 'hospital', 'wellness']),
+        ('sports', ['sports', 'football', 'basketball', 'soccer', 'tennis', 'olympic']),
+        ('politics', ['politics', 'policy', 'government', 'election', 'congress', 'senate']),
+        ('culture', ['culture', 'art', 'music', 'film', 'book', 'theater']),
+    ]
+    for topic, keywords in keyword_topics:
+        if any(keyword in haystack for keyword in keywords):
+            return topic, stage_tag, level
+
+    return 'news', stage_tag, level
+
+
 @router.get('/search')
 def search_web_articles(
     q: str | None = Query(default=None, min_length=2),
@@ -223,5 +328,92 @@ def search_web_articles(
             'query': q or '',
             'sources_checked': len(feed_urls),
             'source_errors': failed_sources,
+        }
+    )
+
+
+@router.post('/import')
+def import_web_article(
+    payload: ImportWebArticleRequest,
+    _: None = Depends(require_admin_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    existing_source = db.scalar(
+        select(ArticleSource).where(
+            ArticleSource.source_url == payload.url,
+            ArticleSource.source_type == 'rss',
+        )
+    )
+    if existing_source is not None and not payload.force_new:
+        article = db.get(Article, existing_source.article_id)
+        if article is None:
+            raise HTTPException(status_code=404, detail='linked article not found')
+        return success(
+            {
+                'article_id': article.id,
+                'title': article.title,
+                'status': article.status,
+                'source_url': article.source_url,
+                'imported': False,
+                'idempotent': True,
+            }
+        )
+
+    paragraphs = _import_paragraphs(payload.summary)
+    reading_minutes = _estimate_reading_minutes(payload.summary)
+    published_dt = _parse_datetime(payload.published_at)
+    inferred_topic, inferred_stage_tag, inferred_level = _infer_import_metadata(
+        source=payload.source,
+        url=payload.url,
+        title=payload.title,
+        summary=payload.summary,
+    )
+    resolved_topic = payload.topic or inferred_topic
+    resolved_stage_tag = payload.stage_tag or inferred_stage_tag
+    resolved_level = payload.level or inferred_level
+
+    article = Article(
+        title=payload.title,
+        slug=None,
+        stage_tag=resolved_stage_tag,
+        level=resolved_level,
+        topic=resolved_topic,
+        summary=payload.summary,
+        reading_minutes=reading_minutes,
+        status='draft',
+        source_url=payload.url,
+        is_published=False,
+        audio_status='pending',
+        article_audio_url=None,
+        published_at=(published_dt or datetime.now(timezone.utc)).replace(tzinfo=None),
+    )
+    db.add(article)
+    db.flush()
+
+    for index, paragraph in enumerate(paragraphs, start=1):
+        db.add(ArticleParagraph(article_id=article.id, paragraph_index=index, text=paragraph))
+
+    ensure_article_slug(db, article)
+    ensure_article_source(
+        db,
+        article=article,
+        source_type='rss',
+        source_name=payload.source,
+        source_url=payload.url,
+        fetched_at=published_dt,
+    )
+    sync_article_content_snapshot(db, article=article, paragraphs=paragraphs)
+
+    db.commit()
+    db.refresh(article)
+
+    return success(
+        {
+            'article_id': article.id,
+            'title': article.title,
+            'status': article.status,
+            'source_url': article.source_url,
+            'imported': True,
+            'idempotent': False,
         }
     )

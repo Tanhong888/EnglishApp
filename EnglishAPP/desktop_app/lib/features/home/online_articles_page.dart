@@ -1,8 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/platform/external_link_opener.dart';
+import '../../core/state/admin_console_controller.dart';
 import '../../core/state/session_controller.dart';
 
 class OnlineArticlesPage extends ConsumerStatefulWidget {
@@ -14,6 +16,7 @@ class OnlineArticlesPage extends ConsumerStatefulWidget {
 
 class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
   final TextEditingController _searchController = TextEditingController();
+  final Set<String> _importingUrls = <String>{};
   int _page = 1;
   final int _size = 10;
   String _query = '';
@@ -78,7 +81,7 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
   }
 
   String _formatPublishedAt(String? raw) {
-    if (raw == null || raw.isEmpty) return '发布时间未知';
+    if (raw == null || raw.isEmpty) return 'Unknown publish time';
     final dt = DateTime.tryParse(raw)?.toLocal();
     if (dt == null) return raw;
     final hh = dt.hour.toString().padLeft(2, '0');
@@ -89,7 +92,7 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
   Future<void> _copyUrl(String url) async {
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('原文链接已复制')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Source URL copied')));
   }
 
   Future<void> _openUrl(String url) async {
@@ -97,15 +100,100 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
     if (!mounted) return;
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂时无法自动打开浏览器，请先复制链接')),
+        const SnackBar(content: Text('Could not open the browser automatically. Copy the link instead.')),
       );
     }
   }
 
+  Future<void> _importArticle(Map<String, dynamic> item) async {
+    final adminState = ref.read(adminConsoleProvider);
+    if (!adminState.hasAdminApiKey) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configure the Admin API Key in the admin console before importing.')),
+      );
+      await context.push('/admin');
+      return;
+    }
+
+    final url = item['url']?.toString() ?? '';
+    if (url.isEmpty) return;
+
+    setState(() {
+      _importingUrls.add(url);
+    });
+
+    try {
+      final response = await ref.read(adminApiProvider).post(
+            '/web-articles/import',
+            body: {
+              'title': item['title']?.toString() ?? 'Untitled',
+              'url': url,
+              'source': item['source']?.toString() ?? 'Unknown source',
+              'summary': item['summary']?.toString() ?? '',
+              'published_at': item['published_at']?.toString(),
+            },
+          );
+      final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final articleId = (data['article_id'] as num?)?.toInt();
+      final imported = data['imported'] as bool? ?? false;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(imported ? 'Draft imported. Opening editor...' : 'Article already exists. Opening editor...')),
+      );
+      if (articleId != null) {
+        await context.push('/admin/articles/$articleId');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _importingUrls.remove(url);
+        });
+      }
+    }
+  }
+
+  Widget _buildAdminImportHint(AdminConsoleState adminState) {
+    final hasKey = adminState.hasAdminApiKey;
+    return Card(
+      color: hasKey ? const Color(0xFFEAF6EE) : const Color(0xFFFFF4E5),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              hasKey ? Icons.verified_user : Icons.admin_panel_settings_outlined,
+              color: hasKey ? const Color(0xFF256F46) : const Color(0xFF9A6700),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                hasKey
+                    ? 'Admin key is ready. You can import any result below as a draft and continue editing it in the content console.'
+                    : 'Configure the Admin API Key first, then web articles here can be imported as editable drafts.',
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(
+              onPressed: () => context.push('/admin'),
+              child: Text(hasKey ? 'Open Admin' : 'Configure'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final adminState = ref.watch(adminConsoleProvider);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('在线英文文章')),
+      appBar: AppBar(title: const Text('Online Articles')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<Map<String, dynamic>>(
@@ -119,12 +207,12 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   const SizedBox(height: 120),
-                  Center(child: Text('加载失败：${snapshot.error}')),
+                  Center(child: Text('Load failed: ${snapshot.error}')),
                   const SizedBox(height: 12),
                   Center(
                     child: OutlinedButton(
                       onPressed: _refresh,
-                      child: const Text('重试'),
+                      child: const Text('Retry'),
                     ),
                   ),
                 ],
@@ -144,9 +232,11 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
               padding: const EdgeInsets.all(16),
               children: [
                 const Text(
-                  '自动聚合公开英文新闻源，只展示标题、摘要和原文链接，适合作为后续阅读素材入口。',
+                  'Public English news feeds are aggregated here as lightweight reading leads. Use them as source material before curating formal learning content.',
                   style: TextStyle(color: Colors.black54),
                 ),
+                const SizedBox(height: 12),
+                _buildAdminImportHint(adminState),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -155,7 +245,7 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                         controller: _searchController,
                         textInputAction: TextInputAction.search,
                         decoration: InputDecoration(
-                          hintText: '输入关键词，例如 sleep / education / technology',
+                          hintText: 'Try keywords like sleep, education, or technology',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                           suffixIcon: _searchController.text.isEmpty
                               ? null
@@ -174,15 +264,15 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                     const SizedBox(width: 12),
                     FilledButton(
                       onPressed: () => _search(query: _searchController.text),
-                      child: const Text('搜索'),
+                      child: const Text('Search'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
                 Card(
                   child: ListTile(
-                    title: Text(_query.isEmpty ? '最新聚合结果' : '关键词：$_query'),
-                    subtitle: Text('已检查 $sourcesChecked 个源 · 当前共 $total 条结果'),
+                    title: Text(_query.isEmpty ? 'Latest aggregated results' : 'Query: $_query'),
+                    subtitle: Text('Checked $sourcesChecked feeds, showing $total results'),
                   ),
                 ),
                 if (sourceErrors.isNotEmpty)
@@ -192,7 +282,7 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                       color: const Color(0xFFFFF7E8),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Text('有 ${sourceErrors.length} 个源本次拉取失败，结果仍会展示已成功返回的文章。'),
+                        child: Text('${sourceErrors.length} feeds failed this round. Successful feed results are still shown below.'),
                       ),
                     ),
                   ),
@@ -200,14 +290,15 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                 if (items.isEmpty)
                   const Card(
                     child: ListTile(
-                      title: Text('暂时没有搜索到结果'),
-                      subtitle: Text('可以换一个英文关键词，或者直接先看默认聚合结果。'),
+                      title: Text('No results right now'),
+                      subtitle: Text('Try another keyword or clear the query to see the default feed aggregation.'),
                     ),
                   ),
                 ...items.map(
                   (item) {
                     final summary = (item['summary']?.toString() ?? '').trim();
                     final url = item['url']?.toString() ?? '';
+                    final importing = _importingUrls.contains(url);
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Card(
@@ -227,11 +318,11 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '${item['source'] ?? 'Unknown source'} · ${_formatPublishedAt(item['published_at']?.toString())}',
+                                '${item['source'] ?? 'Unknown source'} - ${_formatPublishedAt(item['published_at']?.toString())}',
                                 style: const TextStyle(color: Colors.black54),
                               ),
                               const SizedBox(height: 10),
-                              Text(summary.isNotEmpty ? summary : '当前源未提供摘要，请复制原文链接查看。'),
+                              Text(summary.isNotEmpty ? summary : 'No summary is available from this feed item yet.'),
                               const SizedBox(height: 12),
                               SelectableText(
                                 url.isNotEmpty ? url : '-',
@@ -246,12 +337,17 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                                   FilledButton.icon(
                                     onPressed: url.isEmpty ? null : () => _openUrl(url),
                                     icon: const Icon(Icons.open_in_browser, size: 18),
-                                    label: const Text('打开原文'),
+                                    label: const Text('Open Source'),
+                                  ),
+                                  FilledButton.tonalIcon(
+                                    onPressed: url.isEmpty || importing ? null : () => _importArticle(item),
+                                    icon: const Icon(Icons.download_for_offline_outlined, size: 18),
+                                    label: Text(importing ? 'Importing...' : 'Import Draft'),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: url.isEmpty ? null : () => _copyUrl(url),
                                     icon: const Icon(Icons.link, size: 18),
-                                    label: const Text('复制链接'),
+                                    label: const Text('Copy Link'),
                                   ),
                                 ],
                               ),
@@ -270,19 +366,19 @@ class _OnlineArticlesPageState extends ConsumerState<OnlineArticlesPage> {
                       children: [
                         OutlinedButton(
                           onPressed: currentPage > 1 ? () => _search(page: currentPage - 1) : null,
-                          child: const Text('上一页'),
+                          child: const Text('Previous'),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            '第 $currentPage 页 · 每页 $size 条 · 共 $total 条',
+                            'Page $currentPage ? $size per page ? $total total',
                             textAlign: TextAlign.center,
                           ),
                         ),
                         const SizedBox(width: 10),
                         OutlinedButton(
                           onPressed: hasNext ? () => _search(page: currentPage + 1) : null,
-                          child: const Text('下一页'),
+                          child: const Text('Next'),
                         ),
                       ],
                     ),

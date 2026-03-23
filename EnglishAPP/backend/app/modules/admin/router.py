@@ -3,11 +3,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.response import success
+from app.db.article_content_sync import ensure_article_slug, ensure_article_source, summarize_paragraphs, sync_article_content_snapshot
 from app.db.models import Article, ArticleParagraph, Quiz, QuizOption, QuizQuestion, SentenceAnalysis, Word
 from app.db.session import get_db
 from app.tasks.audio_tasks import enqueue_article_audio_generation, get_article_audio_task, serialize_audio_task
@@ -23,6 +24,8 @@ class AdminArticleCreateRequest(BaseModel):
     stage_tag: StageTag
     level: int = Field(ge=1, le=4)
     topic: str
+    summary: str | None = None
+    source_url: str | None = None
     reading_minutes: int = Field(ge=1, le=60)
     is_published: bool = False
     paragraphs: list[str] = Field(min_length=1)
@@ -34,6 +37,14 @@ class AdminArticleCreateRequest(BaseModel):
         if not cleaned:
             raise ValueError('field cannot be empty')
         return cleaned
+
+    @field_validator('summary', 'source_url')
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
     @field_validator('paragraphs')
     @classmethod
@@ -49,11 +60,13 @@ class AdminArticleUpdateRequest(BaseModel):
     stage_tag: StageTag | None = None
     level: int | None = Field(default=None, ge=1, le=4)
     topic: str | None = None
+    summary: str | None = None
+    source_url: str | None = None
     reading_minutes: int | None = Field(default=None, ge=1, le=60)
     is_published: bool | None = None
     paragraphs: list[str] | None = Field(default=None, min_length=1)
 
-    @field_validator('title', 'topic')
+    @field_validator('title', 'topic', 'summary', 'source_url')
     @classmethod
     def validate_optional_non_empty_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -324,10 +337,14 @@ def _serialize_article(article: Article, paragraphs: list[ArticleParagraph]) -> 
     return {
         'id': article.id,
         'title': article.title,
+        'slug': article.slug,
         'stage': article.stage_tag,
         'level': article.level,
         'topic': article.topic,
+        'summary': article.summary,
         'reading_minutes': article.reading_minutes,
+        'status': article.status,
+        'source_url': article.source_url,
         'is_published': article.is_published,
         'audio_status': article.audio_status,
         'article_audio_url': article.article_audio_url,
@@ -399,12 +416,24 @@ def list_admin_articles(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
     published: bool | None = None,
+    q: str = Query(default=''),
     _: None = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
     query = select(Article)
     if published is not None:
         query = query.where(Article.is_published.is_(published))
+    q = q.strip()
+    if q:
+        pattern = f'%{q}%'
+        query = query.where(
+            or_(
+                Article.title.ilike(pattern),
+                Article.summary.ilike(pattern),
+                Article.source_url.ilike(pattern),
+                Article.topic.ilike(pattern),
+            )
+        )
 
     query = query.order_by(Article.updated_at.desc(), Article.id.desc())
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -423,7 +452,10 @@ def list_admin_articles(
                 'stage': article.stage_tag,
                 'level': article.level,
                 'topic': article.topic,
+                'summary': article.summary,
+                'source_url': article.source_url,
                 'reading_minutes': article.reading_minutes,
+                'status': article.status,
                 'is_published': article.is_published,
                 'audio_status': article.audio_status,
                 'published_at': article.published_at.isoformat() if article.published_at else None,
@@ -463,10 +495,14 @@ def create_admin_article(
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     article = Article(
         title=payload.title,
+        slug=None,
         stage_tag=payload.stage_tag,
         level=payload.level,
         topic=payload.topic,
+        summary=payload.summary,
         reading_minutes=payload.reading_minutes,
+        status='published' if payload.is_published else 'draft',
+        source_url=payload.source_url,
         is_published=payload.is_published,
         audio_status='pending' if payload.is_published else 'pending',
         article_audio_url=None,
@@ -475,6 +511,17 @@ def create_admin_article(
     db.add(article)
     db.flush()
     _replace_paragraphs(db, article.id, payload.paragraphs)
+    ensure_article_slug(db, article)
+    if article.summary is None:
+        article.summary = summarize_paragraphs(payload.paragraphs)
+    ensure_article_source(
+        db,
+        article=article,
+        source_type='manual',
+        source_name='admin_console',
+        source_url=payload.source_url,
+    )
+    sync_article_content_snapshot(db, article=article, paragraphs=payload.paragraphs)
     if payload.is_published:
         enqueue_article_audio_generation(db, article, force=True)
     db.commit()
@@ -503,17 +550,40 @@ def update_admin_article(
         article.level = payload.level
     if payload.topic is not None:
         article.topic = payload.topic
+    if payload.summary is not None:
+        article.summary = payload.summary
+    if payload.source_url is not None:
+        article.source_url = payload.source_url
     if payload.reading_minutes is not None:
         article.reading_minutes = payload.reading_minutes
+        if payload.paragraphs is None:
+            sync_article_content_snapshot(
+                db,
+                article=article,
+                paragraphs=[paragraph.text for paragraph in _load_paragraphs(db, article.id)],
+            )
     if payload.is_published is not None:
         if payload.is_published and not article.is_published:
             article.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
             became_published = True
         article.is_published = payload.is_published
+        article.status = 'published' if payload.is_published else 'draft'
     if payload.paragraphs is not None:
         _replace_paragraphs(db, article.id, payload.paragraphs)
+        if payload.summary is None:
+            article.summary = summarize_paragraphs(payload.paragraphs)
+        sync_article_content_snapshot(db, article=article, paragraphs=payload.paragraphs)
         if article.is_published or payload.is_published is True:
             should_regenerate_audio = True
+
+    ensure_article_slug(db, article)
+    ensure_article_source(
+        db,
+        article=article,
+        source_type='manual',
+        source_name='admin_console',
+        source_url=article.source_url,
+    )
 
     if became_published or should_regenerate_audio:
         enqueue_article_audio_generation(db, article, force=True)
@@ -535,6 +605,7 @@ def publish_admin_article(
     if payload.is_published and not article.is_published:
         article.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
     article.is_published = payload.is_published
+    article.status = 'published' if payload.is_published else 'draft'
     if payload.is_published:
         enqueue_article_audio_generation(db, article, force=True)
 

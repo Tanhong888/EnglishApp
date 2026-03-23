@@ -19,6 +19,8 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
 
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _topicController = TextEditingController();
+  final TextEditingController _summaryController = TextEditingController();
+  final TextEditingController _sourceUrlController = TextEditingController();
   final TextEditingController _readingMinutesController = TextEditingController(text: '6');
   final TextEditingController _paragraphsController = TextEditingController();
   final TextEditingController _analysesController = TextEditingController(text: _defaultAnalysesJson);
@@ -68,6 +70,8 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   void dispose() {
     _titleController.dispose();
     _topicController.dispose();
+    _summaryController.dispose();
+    _sourceUrlController.dispose();
     _readingMinutesController.dispose();
     _paragraphsController.dispose();
     _analysesController.dispose();
@@ -101,6 +105,8 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
       setState(() {
         _titleController.text = article['title']?.toString() ?? '';
         _topicController.text = article['topic']?.toString() ?? '';
+        _summaryController.text = article['summary']?.toString() ?? '';
+        _sourceUrlController.text = article['source_url']?.toString() ?? '';
         _readingMinutesController.text = (article['reading_minutes'] ?? 6).toString();
         _paragraphsController.text = paragraphs
             .map((item) => item.cast<String, dynamic>()['text']?.toString() ?? '')
@@ -167,6 +173,8 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         'stage_tag': _stage,
         'level': _level,
         'topic': _topicController.text.trim(),
+        'summary': _summaryController.text.trim(),
+        'source_url': _sourceUrlController.text.trim(),
         'reading_minutes': int.tryParse(_readingMinutesController.text.trim()) ?? 6,
         'is_published': publishAfterSave ? true : _isPublished,
         'paragraphs': _parseParagraphs(),
@@ -371,6 +379,25 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
             TextField(
               controller: _topicController,
               decoration: const InputDecoration(labelText: '主题 topic'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _summaryController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Summary',
+                alignLabelWithHint: true,
+                hintText: 'Used in lists and as the imported article intro',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _sourceUrlController,
+              decoration: const InputDecoration(
+                labelText: 'Source URL',
+                hintText: 'Original article link',
+              ),
             ),
             const SizedBox(height: 12),
             SwitchListTile(

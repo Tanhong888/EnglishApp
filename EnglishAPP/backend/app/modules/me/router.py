@@ -43,8 +43,13 @@ def me_stats(current_user: User = Depends(get_current_user), db: Session = Depen
     if total_progressed > 0:
         completed = db.scalar(
             select(func.count(func.distinct(UserReadingProgress.article_id)))
-            .join(Article, Article.id == UserReadingProgress.article_id)
-            .where(UserReadingProgress.user_id == current_user.id, Article.is_completed.is_(True))
+            .where(
+                UserReadingProgress.user_id == current_user.id,
+                or_(
+                    UserReadingProgress.completed_at.is_not(None),
+                    UserReadingProgress.progress_percent >= 100,
+                ),
+            )
         ) or 0
         completion_rate = round(completed / total_progressed, 2)
 

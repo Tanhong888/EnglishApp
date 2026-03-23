@@ -2,7 +2,10 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.db.models import Article, ArticleContent, ArticleSource
+from app.db.session import SessionLocal
 from app.main import app
 
 
@@ -100,6 +103,38 @@ def test_personal_routes_require_auth(client: TestClient) -> None:
     assert favorite_response.status_code == 401
     assert vocab_response.status_code == 401
     assert recent_response.status_code == 401
+
+
+def test_me_stats_completion_rate_uses_user_progress(client: TestClient) -> None:
+    _, tokens = register_and_login(client)
+    headers = make_headers(tokens['access_token'])
+
+    first_progress = client.post(
+        '/api/v1/reading/progress',
+        json={'article_id': 1, 'paragraph_index': 1},
+        headers=headers,
+    )
+    assert first_progress.status_code == 200
+    assert first_progress.json()['data']['progress_percent'] == 25.0
+    assert first_progress.json()['data']['completed'] is False
+
+    stats_mid = client.get('/api/v1/me/stats', headers=headers)
+    assert stats_mid.status_code == 200
+    assert stats_mid.json()['data']['read_articles'] == 1
+    assert stats_mid.json()['data']['completion_rate'] == 0.0
+
+    final_progress = client.post(
+        '/api/v1/reading/progress',
+        json={'article_id': 1, 'paragraph_index': 4},
+        headers=headers,
+    )
+    assert final_progress.status_code == 200
+    assert final_progress.json()['data']['progress_percent'] == 100.0
+    assert final_progress.json()['data']['completed'] is True
+
+    stats_done = client.get('/api/v1/me/stats', headers=headers)
+    assert stats_done.status_code == 200
+    assert stats_done.json()['data']['completion_rate'] == 1.0
 
 
 def test_favorite_idempotent_flow(client: TestClient) -> None:
@@ -820,6 +855,86 @@ def test_web_article_search_latest_pagination_and_source_errors(client: TestClie
     assert data['source_errors'] == ['https://feed-b.example/rss.xml']
 
 
+
+def test_web_article_import_infers_topic_and_level_from_source(client: TestClient) -> None:
+    from app.core.config import settings
+
+    unique_id = uuid4().hex
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    payload = {
+        'title': f'AI Research Update {unique_id}',
+        'url': f'https://www.techcrunch.com/story-{unique_id}',
+        'source': 'TechCrunch',
+        'summary': 'A report about AI software startups and new tools.',
+        'published_at': '2026-03-22T09:00:00Z',
+    }
+
+    response = client.post('/api/v1/web-articles/import', headers=headers, json=payload)
+    assert response.status_code == 200
+    article_id = response.json()['data']['article_id']
+
+    admin_detail = client.get(f'/api/v1/admin/articles/{article_id}', headers=headers)
+    assert admin_detail.status_code == 200
+    detail = admin_detail.json()['data']
+    assert detail['topic'] == 'technology'
+    assert detail['stage'] == 'cet6'
+    assert detail['level'] == 2
+
+
+def test_web_article_import_creates_draft_and_is_idempotent(client: TestClient) -> None:
+    from app.core.config import settings
+
+    unique_id = uuid4().hex
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    payload = {
+        'title': f'Imported RSS Article {unique_id}',
+        'url': f'https://example.com/imported-rss-article-{unique_id}',
+        'source': 'NPR Science',
+        'summary': 'Imported summary for editing before publication.',
+        'published_at': '2026-03-22T09:00:00Z',
+        'stage_tag': 'cet6',
+        'level': 2,
+        'topic': 'science',
+    }
+
+    first = client.post('/api/v1/web-articles/import', headers=headers, json=payload)
+    assert first.status_code == 200
+    first_data = first.json()['data']
+    assert first_data['imported'] is True
+    assert first_data['idempotent'] is False
+    article_id = first_data['article_id']
+
+    admin_detail = client.get(f'/api/v1/admin/articles/{article_id}', headers=headers)
+    assert admin_detail.status_code == 200
+    detail = admin_detail.json()['data']
+    assert detail['status'] == 'draft'
+    assert detail['source_url'] == payload['url']
+    assert detail['paragraph_count'] == 1
+
+    second = client.post('/api/v1/web-articles/import', headers=headers, json=payload)
+    assert second.status_code == 200
+    second_data = second.json()['data']
+    assert second_data['article_id'] == article_id
+    assert second_data['imported'] is False
+    assert second_data['idempotent'] is True
+
+    with SessionLocal() as db:
+        article = db.get(Article, article_id)
+        assert article is not None
+        assert article.status == 'draft'
+        assert article.slug is not None
+
+        snapshots = db.scalars(select(ArticleContent).where(ArticleContent.article_id == article_id)).all()
+        assert len(snapshots) == 1
+        assert 'Imported summary' in snapshots[0].content_text
+
+        sources = db.scalars(select(ArticleSource).where(ArticleSource.article_id == article_id)).all()
+        assert len(sources) == 1
+        assert sources[0].source_type == 'rss'
+        assert sources[0].source_name == 'NPR Science'
+        assert sources[0].source_url == payload['url']
+
+
 def test_admin_articles_require_admin_key(client: TestClient) -> None:
     missing = client.get('/api/v1/admin/articles')
     assert missing.status_code == 401
@@ -827,6 +942,45 @@ def test_admin_articles_require_admin_key(client: TestClient) -> None:
     invalid = client.get('/api/v1/admin/articles', headers={'X-Admin-Key': 'wrong-key'})
     assert invalid.status_code == 403
 
+
+
+def test_admin_articles_search_filters_title_summary_and_source(client: TestClient) -> None:
+    from app.core.config import settings
+
+    unique_id = uuid4().hex
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    create_response = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': f'Climate Policy Brief {unique_id}',
+            'stage_tag': 'cet6',
+            'level': 2,
+            'topic': 'policy',
+            'summary': 'A concise summary about urban transport reform.',
+            'source_url': f'https://newsroom.example.com/brief-{unique_id}',
+            'reading_minutes': 5,
+            'is_published': False,
+            'paragraphs': ['Draft paragraph for admin search coverage.'],
+        },
+    )
+    assert create_response.status_code == 200
+    article_id = create_response.json()['data']['id']
+
+    by_title = client.get('/api/v1/admin/articles', headers=headers, params={'q': unique_id})
+    assert by_title.status_code == 200
+    title_items = by_title.json()['data']['items']
+    assert any(item['id'] == article_id for item in title_items)
+
+    by_summary = client.get('/api/v1/admin/articles', headers=headers, params={'q': 'urban transport reform'})
+    assert by_summary.status_code == 200
+    summary_items = by_summary.json()['data']['items']
+    assert any(item['id'] == article_id for item in summary_items)
+
+    by_source = client.get('/api/v1/admin/articles', headers=headers, params={'q': 'newsroom.example.com'})
+    assert by_source.status_code == 200
+    source_items = by_source.json()['data']['items']
+    assert any(item['id'] == article_id for item in source_items)
 
 
 def test_admin_article_crud_and_publish_flow(client: TestClient) -> None:
@@ -1085,6 +1239,68 @@ def test_admin_publish_enqueues_audio_task_and_reaches_ready(client: TestClient)
     assert audio_file.headers['content-type'].startswith('audio/wav')
     assert len(audio_file.content) > 100
 
+
+
+def test_admin_article_snapshots_and_sources_are_persisted(client: TestClient) -> None:
+    from app.core.config import settings
+
+    headers = {'X-Admin-Key': settings.admin_api_key}
+    create_response = client.post(
+        '/api/v1/admin/articles',
+        headers=headers,
+        json={
+            'title': 'Snapshot Source Article',
+            'stage_tag': 'cet6',
+            'level': 2,
+            'topic': 'technology',
+            'source_url': 'https://example.com/source-article',
+            'reading_minutes': 7,
+            'is_published': False,
+            'paragraphs': [
+                'Paragraph one about adaptive content systems.',
+                'Paragraph two about human review workflows.',
+            ],
+        },
+    )
+    assert create_response.status_code == 200
+    article_id = create_response.json()['data']['id']
+
+    update_response = client.patch(
+        f'/api/v1/admin/articles/{article_id}',
+        headers=headers,
+        json={
+            'reading_minutes': 9,
+            'paragraphs': [
+                'Paragraph one about adaptive content systems.',
+                'Paragraph two about human review workflows.',
+                'Paragraph three about versioned publishing.',
+            ],
+        },
+    )
+    assert update_response.status_code == 200
+
+    with SessionLocal() as db:
+        article = db.get(Article, article_id)
+        assert article is not None
+        assert article.slug is not None
+        assert article.status == 'draft'
+        assert article.summary is not None
+
+        snapshots = db.scalars(
+            select(ArticleContent)
+            .where(ArticleContent.article_id == article_id)
+            .order_by(ArticleContent.version.asc())
+        ).all()
+        assert len(snapshots) == 2
+        assert snapshots[0].version == 1
+        assert snapshots[1].version == 2
+        assert snapshots[-1].estimated_reading_minutes == 9
+        assert 'versioned publishing' in snapshots[-1].content_text
+
+        sources = db.scalars(select(ArticleSource).where(ArticleSource.article_id == article_id)).all()
+        assert len(sources) == 1
+        assert sources[0].source_type == 'manual'
+        assert sources[0].source_url == 'https://example.com/source-article'
 
 
 def test_admin_audio_task_retries_and_fails(client: TestClient) -> None:
