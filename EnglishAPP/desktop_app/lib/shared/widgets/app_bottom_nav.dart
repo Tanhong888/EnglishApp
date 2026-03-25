@@ -7,9 +7,8 @@ class AppBottomNav extends StatelessWidget {
   final String location;
 
   int get selectedIndex {
-    if (location.startsWith('/articles')) return 1;
-    if (location.startsWith('/vocab')) return 2;
-    if (location.startsWith('/me')) return 3;
+    if (location.startsWith('/vocab')) return 1;
+    if (location.startsWith('/me')) return 2;
     return 0;
   }
 
@@ -23,19 +22,15 @@ class AppBottomNav extends StatelessWidget {
             context.go('/home');
             break;
           case 1:
-            context.go('/articles');
-            break;
-          case 2:
             context.go('/vocab');
             break;
-          case 3:
+          case 2:
             context.go('/me');
             break;
         }
       },
       destinations: const [
         NavigationDestination(icon: Icon(Icons.home_outlined), label: '首页'),
-        NavigationDestination(icon: Icon(Icons.menu_book_outlined), label: '分级阅读'),
         NavigationDestination(icon: Icon(Icons.bookmark_outline), label: '生词本'),
         NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
       ],

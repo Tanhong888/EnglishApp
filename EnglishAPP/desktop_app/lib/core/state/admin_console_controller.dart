@@ -35,13 +35,13 @@ class AdminConsoleController extends StateNotifier<AdminConsoleState> {
     _restore();
   }
 
-  static const _kAdminApiKey = 'admin_api_key';
+  static const _adminApiKeyKey = 'admin_api_key';
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     state = AdminConsoleState(
       initialized: true,
-      adminApiKey: prefs.getString(_kAdminApiKey),
+      adminApiKey: prefs.getString(_adminApiKeyKey),
     );
   }
 
@@ -49,17 +49,17 @@ class AdminConsoleController extends StateNotifier<AdminConsoleState> {
     final trimmed = value.trim();
     final prefs = await SharedPreferences.getInstance();
     if (trimmed.isEmpty) {
-      await prefs.remove(_kAdminApiKey);
+      await prefs.remove(_adminApiKeyKey);
       state = const AdminConsoleState(initialized: true);
       return;
     }
-    await prefs.setString(_kAdminApiKey, trimmed);
+    await prefs.setString(_adminApiKeyKey, trimmed);
     state = AdminConsoleState(initialized: true, adminApiKey: trimmed);
   }
 
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kAdminApiKey);
+    await prefs.remove(_adminApiKeyKey);
     state = const AdminConsoleState(initialized: true);
   }
 }
@@ -71,7 +71,7 @@ class AdminApi {
 
   ApiClient get _api => _ref.read(apiClientProvider);
 
-  Map<String, String> _adminHeaders() {
+  Map<String, String> _headers() {
     final key = _ref.read(adminConsoleProvider).adminApiKey;
     if (key == null || key.isEmpty) {
       throw ApiException(401, 'missing_admin_api_key');
@@ -80,19 +80,19 @@ class AdminApi {
   }
 
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) {
-    return _api.get(path, query: query, headers: _adminHeaders());
+    return _api.get(path, query: query, headers: _headers());
   }
 
   Future<Map<String, dynamic>> post(String path, {Object? body}) {
-    return _api.post(path, body: body, headers: _adminHeaders());
+    return _api.post(path, body: body, headers: _headers());
   }
 
   Future<Map<String, dynamic>> put(String path, {Object? body}) {
-    return _api.put(path, body: body, headers: _adminHeaders());
+    return _api.put(path, body: body, headers: _headers());
   }
 
   Future<Map<String, dynamic>> patch(String path, {Object? body}) {
-    return _api.patch(path, body: body, headers: _adminHeaders());
+    return _api.patch(path, body: body, headers: _headers());
   }
 }
 
@@ -103,3 +103,4 @@ final adminConsoleProvider = StateNotifierProvider<AdminConsoleController, Admin
 final adminApiProvider = Provider<AdminApi>((ref) {
   return AdminApi(ref);
 });
+

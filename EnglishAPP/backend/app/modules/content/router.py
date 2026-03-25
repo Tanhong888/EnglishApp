@@ -1,8 +1,9 @@
-﻿from datetime import datetime, timezone
-from functools import lru_cache
-from io import BytesIO
-import re
+﻿from __future__ import annotations
+
+import math
 import wave
+from datetime import UTC, datetime
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -10,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.response import success
 from app.db.models import Article, ArticleParagraph, User, UserArticleFavorite
 from app.db.session import get_db
@@ -17,83 +19,44 @@ from app.db.session import get_db
 router = APIRouter()
 
 
-_SAMPLE_RATE = 8000
-_SAMPLE_WIDTH_BYTES = 2
-_CHANNELS = 1
-
-
-def serialize_article(article: Article) -> dict:
+def _serialize_article(article: Article) -> dict:
     return {
         'id': article.id,
+        'slug': article.slug,
         'title': article.title,
         'stage': article.stage_tag,
         'level': article.level,
         'topic': article.topic,
+        'summary': article.summary,
         'reading_minutes': article.reading_minutes,
         'is_completed': article.is_completed,
+        'audio_status': article.audio_status,
+        'source_url': article.source_url,
         'published_at': article.published_at.isoformat(),
     }
 
 
-
-def _get_public_article_or_404(db: Session, article_id: int) -> Article:
+def _get_article_or_404(article_id: int, db: Session) -> Article:
     article = db.get(Article, article_id)
     if article is None or not article.is_published:
         raise HTTPException(status_code=404, detail='article not found')
     return article
 
 
-
-def _word_count(text: str) -> int:
-    return len(re.findall(r"[A-Za-z]+", text or ""))
-
-
-
-def _build_paragraph_timestamps(article: Article, paragraphs: list[ArticleParagraph]) -> list[dict]:
-    if not paragraphs:
-        return []
-
-    base_ms = 3000
-    paragraph_count = len(paragraphs)
-    target_total_ms = max(article.reading_minutes * 60 * 1000, paragraph_count * base_ms)
-
-    weights = [max(_word_count(p.text), 1) for p in paragraphs]
-    total_weight = sum(weights) or paragraph_count
-    remaining_ms = max(target_total_ms - paragraph_count * base_ms, 0)
-
-    durations = [base_ms + int(remaining_ms * weight / total_weight) for weight in weights]
-    drift = target_total_ms - sum(durations)
-    durations[-1] += drift
-
-    cursor_ms = 0
-    timestamps: list[dict] = []
-    for paragraph, duration_ms in zip(paragraphs, durations):
-        start_ms = cursor_ms
-        end_ms = max(start_ms + 1000, start_ms + duration_ms)
-        cursor_ms = end_ms
-
-        timestamps.append(
-            {
-                'index': paragraph.paragraph_index,
-                'start': round(start_ms / 1000, 3),
-                'end': round(end_ms / 1000, 3),
-            }
-        )
-
-    return timestamps
-
-
-@lru_cache(maxsize=16)
-def _build_silent_wav(seconds: int) -> bytes:
-    clamped_seconds = max(1, min(seconds, 15 * 60))
-    frame_count = _SAMPLE_RATE * clamped_seconds
-    silence = b'\x00' * frame_count * _SAMPLE_WIDTH_BYTES * _CHANNELS
+def _build_mock_wav_bytes(article_id: int) -> bytes:
+    sample_rate = 8000
+    duration_seconds = 1
+    frequency = 440 + (article_id % 5) * 30
+    amplitude = 8000
+    frame_count = sample_rate * duration_seconds
     buffer = BytesIO()
     with wave.open(buffer, 'wb') as wav_file:
-        wav_file.setnchannels(_CHANNELS)
-        wav_file.setsampwidth(_SAMPLE_WIDTH_BYTES)
-        wav_file.setframerate(_SAMPLE_RATE)
-        wav_file.writeframes(silence)
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        for index in range(frame_count):
+            value = int(amplitude * math.sin(2 * math.pi * frequency * index / sample_rate))
+            wav_file.writeframesraw(value.to_bytes(2, byteorder='little', signed=True))
     return buffer.getvalue()
 
 
@@ -111,86 +74,91 @@ def list_articles(
         raise HTTPException(status_code=400, detail='sort must be one of recommended/latest/hot')
 
     query = select(Article).where(Article.is_published.is_(True))
-
     if stage:
         query = query.where(Article.stage_tag == stage)
-    if level:
+    if level is not None:
         query = query.where(Article.level == level)
     if topic:
         query = query.where(Article.topic == topic)
 
     if sort == 'latest':
-        query = query.order_by(Article.published_at.desc())
+        query = query.order_by(Article.published_at.desc(), Article.id.desc())
     elif sort == 'hot':
-        query = query.order_by(Article.reading_minutes.asc(), Article.published_at.desc())
+        query = query.order_by(Article.reading_minutes.asc(), Article.level.asc(), Article.id.desc())
     else:
-        query = query.order_by(Article.level.asc(), Article.published_at.desc())
+        query = query.order_by(Article.level.asc(), Article.published_at.desc(), Article.id.desc())
 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     offset = (page - 1) * size
     articles = db.scalars(query.offset(offset).limit(size)).all()
 
-    data = {
-        'items': [serialize_article(article) for article in articles],
-        'page': page,
-        'size': size,
-        'total': total,
-        'has_next': offset + len(articles) < total,
-    }
-    return success(data)
+    return success(
+        {
+            'items': [_serialize_article(article) for article in articles],
+            'page': page,
+            'size': size,
+            'total': total,
+            'has_next': offset + len(articles) < total,
+        }
+    )
 
 
 @router.get('/{article_id}')
 def get_article(article_id: int, db: Session = Depends(get_db)) -> dict:
-    article = _get_public_article_or_404(db, article_id)
-
+    article = _get_article_or_404(article_id, db)
     paragraphs = db.scalars(
         select(ArticleParagraph)
         .where(ArticleParagraph.article_id == article_id)
-        .order_by(ArticleParagraph.paragraph_index.asc())
+        .order_by(ArticleParagraph.paragraph_index.asc(), ArticleParagraph.id.asc())
     ).all()
 
-    detail = {
-        **serialize_article(article),
-        'paragraphs': [{'index': p.paragraph_index, 'text': p.text} for p in paragraphs],
-    }
-    return success(detail)
-
-
-@router.get('/{article_id}/audio/file')
-def get_article_audio_file(article_id: int, db: Session = Depends(get_db)) -> Response:
-    article = _get_public_article_or_404(db, article_id)
-    if article.audio_status != 'ready' or not article.article_audio_url:
-        raise HTTPException(status_code=404, detail='article audio not ready')
-
-    wav_bytes = _build_silent_wav(article.reading_minutes * 60)
-    return Response(
-        content=wav_bytes,
-        media_type='audio/wav',
-        headers={'Cache-Control': 'public, max-age=3600'},
+    return success(
+        {
+            **_serialize_article(article),
+            'paragraphs': [{'index': paragraph.paragraph_index, 'text': paragraph.text} for paragraph in paragraphs],
+        }
     )
 
 
 @router.get('/{article_id}/audio')
 def get_article_audio(article_id: int, db: Session = Depends(get_db)) -> dict:
-    article = _get_public_article_or_404(db, article_id)
+    article = _get_article_or_404(article_id, db)
+    paragraphs = db.scalars(
+        select(ArticleParagraph)
+        .where(ArticleParagraph.article_id == article_id)
+        .order_by(ArticleParagraph.paragraph_index.asc(), ArticleParagraph.id.asc())
+    ).all()
 
     paragraph_timestamps: list[dict] = []
     if article.audio_status == 'ready':
-        paragraphs = db.scalars(
-            select(ArticleParagraph)
-            .where(ArticleParagraph.article_id == article_id)
-            .order_by(ArticleParagraph.paragraph_index.asc())
-        ).all()
-        paragraph_timestamps = _build_paragraph_timestamps(article, paragraphs)
+        current_start = 0.0
+        for paragraph in paragraphs:
+            duration = max(4.0, round(len(paragraph.text.split()) * 0.45, 2))
+            paragraph_timestamps.append(
+                {
+                    'index': paragraph.paragraph_index,
+                    'start': round(current_start, 2),
+                    'end': round(current_start + duration, 2),
+                }
+            )
+            current_start += duration
 
-    data = {
-        'status': article.audio_status,
-        'article_audio_url': article.article_audio_url if article.audio_status == 'ready' else None,
-        'paragraph_timestamps': paragraph_timestamps,
-        'retry_hint': '稍后重试' if article.audio_status == 'failed' else None,
-    }
-    return success(data)
+    return success(
+        {
+            'status': article.audio_status,
+            'article_audio_url': article.article_audio_url if article.audio_status == 'ready' else None,
+            'paragraph_timestamps': paragraph_timestamps,
+            'retry_hint': '稍后重试' if article.audio_status == 'failed' else None,
+        }
+    )
+
+
+@router.get('/{article_id}/audio/file')
+def get_article_audio_file(article_id: int, db: Session = Depends(get_db)) -> Response:
+    article = _get_article_or_404(article_id, db)
+    if article.audio_status != 'ready':
+        raise HTTPException(status_code=404, detail='audio not ready')
+    return Response(content=_build_mock_wav_bytes(article_id), media_type='audio/wav')
 
 
 @router.get('/{article_id}/favorite-status')
@@ -199,15 +167,13 @@ def favorite_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    article = _get_public_article_or_404(db, article_id)
-
+    _get_article_or_404(article_id, db)
     favorite = db.scalar(
         select(UserArticleFavorite).where(
             UserArticleFavorite.user_id == current_user.id,
-            UserArticleFavorite.article_id == article.id,
+            UserArticleFavorite.article_id == article_id,
         )
     )
-
     return success({'article_id': article_id, 'favorite': favorite.is_favorited if favorite is not None else False})
 
 
@@ -217,12 +183,11 @@ def favorite_article(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    article = _get_public_article_or_404(db, article_id)
-
+    _get_article_or_404(article_id, db)
     favorite = db.scalar(
         select(UserArticleFavorite).where(
             UserArticleFavorite.user_id == current_user.id,
-            UserArticleFavorite.article_id == article.id,
+            UserArticleFavorite.article_id == article_id,
         )
     )
 
@@ -231,7 +196,7 @@ def favorite_article(
         db.add(favorite)
     else:
         favorite.is_favorited = True
-        favorite.favorited_at = datetime.now(timezone.utc)
+        favorite.favorited_at = datetime.now(UTC).replace(tzinfo=None)
         favorite.unfavorited_at = None
 
     db.commit()
@@ -244,12 +209,11 @@ def unfavorite_article(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    article = _get_public_article_or_404(db, article_id)
-
+    _get_article_or_404(article_id, db)
     favorite = db.scalar(
         select(UserArticleFavorite).where(
             UserArticleFavorite.user_id == current_user.id,
-            UserArticleFavorite.article_id == article.id,
+            UserArticleFavorite.article_id == article_id,
         )
     )
 
@@ -258,12 +222,12 @@ def unfavorite_article(
             user_id=current_user.id,
             article_id=article_id,
             is_favorited=False,
-            unfavorited_at=datetime.now(timezone.utc),
+            unfavorited_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db.add(favorite)
     else:
         favorite.is_favorited = False
-        favorite.unfavorited_at = datetime.now(timezone.utc)
+        favorite.unfavorited_at = datetime.now(UTC).replace(tzinfo=None)
 
     db.commit()
     return success({'article_id': article_id, 'favorite': False, 'idempotent': True})

@@ -2,20 +2,21 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/state/admin_console_controller.dart';
 
 class AdminArticleEditorPage extends ConsumerStatefulWidget {
   const AdminArticleEditorPage({super.key, this.articleId});
 
-  final String? articleId;
+  final int? articleId;
 
   @override
   ConsumerState<AdminArticleEditorPage> createState() => _AdminArticleEditorPageState();
 }
 
 class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage> {
-  static const JsonEncoder _jsonEncoder = JsonEncoder.withIndent('  ');
+  static const JsonEncoder _encoder = JsonEncoder.withIndent('  ');
 
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _topicController = TextEditingController();
@@ -23,45 +24,28 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   final TextEditingController _sourceUrlController = TextEditingController();
   final TextEditingController _readingMinutesController = TextEditingController(text: '6');
   final TextEditingController _paragraphsController = TextEditingController();
-  final TextEditingController _analysesController = TextEditingController(text: _defaultAnalysesJson);
-  final TextEditingController _quizController = TextEditingController(text: _defaultQuizJson);
+  final TextEditingController _analysesController = TextEditingController(text: '[]');
+  final TextEditingController _quizController = TextEditingController(text: '[]');
 
   bool _loading = false;
   bool _savingArticle = false;
   bool _savingAnalyses = false;
   bool _savingQuiz = false;
-  bool _generatingAudio = false;
+  bool _refreshingAudio = false;
   int? _articleId;
   String _stage = 'cet4';
   int _level = 1;
   bool _isPublished = false;
+  bool _desiredPublished = false;
   Map<String, dynamic>? _audioTask;
-
-  static const String _defaultAnalysesJson = '''[
-  {
-    "sentence_index": 1,
-    "sentence": "Sleep plays a major role in memory consolidation.",
-    "translation": "睡眠在记忆巩固中发挥重要作用。",
-    "structure": "主语 + 谓语 + role in 短语"
-  }
-]''';
-
-  static const String _defaultQuizJson = '''[
-  {
-    "question_index": 1,
-    "stem": "What does sleep help consolidate?",
-    "options": ["Memory", "Color", "Weather"],
-    "correct_option_index": 1
-  }
-]''';
 
   bool get _isCreateMode => widget.articleId == null;
 
   @override
   void initState() {
     super.initState();
-    if (!_isCreateMode) {
-      _articleId = int.tryParse(widget.articleId!);
+    _articleId = widget.articleId;
+    if (_articleId != null) {
       _loadArticle();
     }
   }
@@ -80,28 +64,35 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   }
 
   Future<void> _loadArticle() async {
-    if (_articleId == null) return;
+    final articleId = _articleId;
+    if (articleId == null) {
+      return;
+    }
+
     setState(() {
       _loading = true;
     });
 
-    final api = ref.read(adminApiProvider);
     try {
-      final articleResp = await api.get('/admin/articles/$_articleId');
-      final article = (articleResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final analysesResp = await api.get('/admin/articles/$_articleId/sentence-analyses');
-      final quizResp = await api.get('/admin/articles/$_articleId/quiz');
-      final audioResp = await api.get('/admin/articles/$_articleId/audio-task');
+      final api = ref.read(adminApiProvider);
+      final articleResponse = await api.get('/admin/articles/$articleId');
+      final analysesResponse = await api.get('/admin/articles/$articleId/sentence-analyses');
+      final quizResponse = await api.get('/admin/articles/$articleId/quiz');
+      final audioResponse = await api.get('/admin/articles/$articleId/audio-task');
 
-      final analyses = (analysesResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final quiz = (quizResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final audio = (audioResp['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final article = (articleResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final analyses = (analysesResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final quiz = (quizResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final audio = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
       final paragraphs = (article['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
       final analysisItems = (analyses['items'] as List?)?.cast<Map>() ?? const <Map>[];
       final quizItems = (quiz['questions'] as List?)?.cast<Map>() ?? const <Map>[];
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _titleController.text = article['title']?.toString() ?? '';
         _topicController.text = article['topic']?.toString() ?? '';
@@ -115,34 +106,19 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         _stage = article['stage']?.toString() ?? 'cet4';
         _level = (article['level'] as num?)?.toInt() ?? 1;
         _isPublished = article['is_published'] as bool? ?? false;
-        _analysesController.text = _jsonEncoder.convert(
-          analysisItems.map((item) => item.cast<String, dynamic>()).map((item) {
-            return {
-              'sentence_index': item['sentence_index'],
-              'sentence': item['sentence'],
-              'translation': item['translation'],
-              'structure': item['structure'],
-            };
-          }).toList(),
+        _desiredPublished = _isPublished;
+        _analysesController.text = _encoder.convert(
+          analysisItems.map((item) => item.cast<String, dynamic>()).toList(),
         );
-        _quizController.text = _jsonEncoder.convert(
-          quizItems.map((item) => item.cast<String, dynamic>()).map((item) {
-            final options = (item['options'] as List?)?.cast<Map>() ?? const <Map>[];
-            return {
-              'question_index': item['question_index'],
-              'stem': item['stem'],
-              'options': options
-                  .map((option) => option.cast<String, dynamic>()['content']?.toString() ?? '')
-                  .where((text) => text.isNotEmpty)
-                  .toList(),
-              'correct_option_index': item['correct_option_index'],
-            };
-          }).toList(),
+        _quizController.text = _encoder.convert(
+          quizItems.map((item) => item.cast<String, dynamic>()).toList(),
         );
         _audioTask = (audio['task'] as Map?)?.cast<String, dynamic>();
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载文章失败：$e')));
     } finally {
       if (mounted) {
@@ -161,45 +137,75 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         .toList();
   }
 
-  Future<void> _saveArticle({required bool publishAfterSave}) async {
+  Future<void> _saveArticle() async {
+    final title = _titleController.text.trim();
+    final topic = _topicController.text.trim();
+    final paragraphs = _parseParagraphs();
+    if (title.isEmpty || topic.isEmpty || paragraphs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标题、主题和正文段落不能为空')));
+      return;
+    }
+
     setState(() {
       _savingArticle = true;
     });
 
     try {
       final api = ref.read(adminApiProvider);
-      final body = {
-        'title': _titleController.text.trim(),
+      final body = <String, dynamic>{
+        'title': title,
         'stage_tag': _stage,
         'level': _level,
-        'topic': _topicController.text.trim(),
+        'topic': topic,
         'summary': _summaryController.text.trim(),
         'source_url': _sourceUrlController.text.trim(),
         'reading_minutes': int.tryParse(_readingMinutesController.text.trim()) ?? 6,
-        'is_published': publishAfterSave ? true : _isPublished,
-        'paragraphs': _parseParagraphs(),
+        'paragraphs': paragraphs,
       };
 
       Map<String, dynamic> response;
       if (_articleId == null) {
-        response = await api.post('/admin/articles', body: body);
+        response = await api.post(
+          '/admin/articles',
+          body: {
+            ...body,
+            'is_published': _desiredPublished,
+          },
+        );
       } else {
         response = await api.patch('/admin/articles/$_articleId', body: body);
       }
 
-      final article = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      if (!mounted) return;
+      var article = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final nextArticleId = (article['id'] as num?)?.toInt() ?? _articleId;
+      if (_articleId != null && _desiredPublished != _isPublished) {
+        final publishResponse = await api.post(
+          '/admin/articles/$nextArticleId/publish',
+          body: {'is_published': _desiredPublished},
+        );
+        article = (publishResponse['data'] as Map?)?.cast<String, dynamic>() ?? article;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
-        _articleId = article['id'] as int? ?? _articleId;
-        _isPublished = article['is_published'] as bool? ?? _isPublished;
+        _articleId = (article['id'] as num?)?.toInt() ?? nextArticleId;
+        _isPublished = article['is_published'] as bool? ?? _desiredPublished;
+        _desiredPublished = _isPublished;
       });
-      await _refreshAudioTask();
-      if (!mounted) return;
+      await _loadArticle();
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(publishAfterSave ? '文章已保存并发布' : '文章已保存')),
+        SnackBar(content: Text(_isPublished ? '文章已保存并发布到阅读库' : '文章草稿已保存')),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存文章失败：$e')));
     } finally {
       if (mounted) {
@@ -211,22 +217,31 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   }
 
   Future<void> _saveAnalyses() async {
-    if (_articleId == null) return;
+    final articleId = _articleId;
+    if (articleId == null) {
+      return;
+    }
+
     setState(() {
       _savingAnalyses = true;
     });
+
     try {
       final decoded = jsonDecode(_analysesController.text) as List;
       final items = decoded.map((item) => (item as Map).cast<String, dynamic>()).toList();
       await ref.read(adminApiProvider).put(
-            '/admin/articles/$_articleId/sentence-analyses',
+            '/admin/articles/$articleId/sentence-analyses',
             body: {'items': items},
           );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('句子解析已保存')));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存解析失败：$e')));
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存句子解析失败：$e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -237,22 +252,31 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   }
 
   Future<void> _saveQuiz() async {
-    if (_articleId == null) return;
+    final articleId = _articleId;
+    if (articleId == null) {
+      return;
+    }
+
     setState(() {
       _savingQuiz = true;
     });
+
     try {
       final decoded = jsonDecode(_quizController.text) as List;
       final questions = decoded.map((item) => (item as Map).cast<String, dynamic>()).toList();
       await ref.read(adminApiProvider).put(
-            '/admin/articles/$_articleId/quiz',
+            '/admin/articles/$articleId/quiz',
             body: {'questions': questions},
           );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('小测题已保存')));
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('阅读小测已保存')));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存小测失败：$e')));
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存阅读小测失败：$e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -263,37 +287,33 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   }
 
   Future<void> _refreshAudioTask() async {
-    if (_articleId == null) return;
+    final articleId = _articleId;
+    if (articleId == null) {
+      return;
+    }
+
+    setState(() {
+      _refreshingAudio = true;
+    });
+
     try {
-      final response = await ref.read(adminApiProvider).get('/admin/articles/$_articleId/audio-task');
+      final response = await ref.read(adminApiProvider).get('/admin/articles/$articleId/audio-task');
       final payload = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _audioTask = (payload['task'] as Map?)?.cast<String, dynamic>();
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('获取音频任务失败：$e')));
-    }
-  }
-
-  Future<void> _generateAudio() async {
-    if (_articleId == null) return;
-    setState(() {
-      _generatingAudio = true;
-    });
-    try {
-      await ref.read(adminApiProvider).post('/admin/articles/$_articleId/audio/generate', body: {'force': true});
-      await _refreshAudioTask();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已触发音频生成任务')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('触发音频生成失败：$e')));
     } finally {
       if (mounted) {
         setState(() {
-          _generatingAudio = false;
+          _refreshingAudio = false;
         });
       }
     }
@@ -310,24 +330,31 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
               children: [
                 Expanded(
                   child: Text(
-                    _isCreateMode ? '新建文章' : '编辑文章 #$_articleId',
+                    _articleId == null ? '新建阅读文章' : '编辑文章 #$_articleId',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
-                Chip(label: Text(_isPublished ? '已发布' : '草稿')),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    color: _isPublished
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  ),
+                  child: Text(_isPublished ? '已发布' : '草稿'),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              '正文段落请用空行分隔。文章保存后，解析、小测和音频任务区域才会正式生效。',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+            const Text('正文段落用空行分隔。文章保存后，可以继续维护句子解析和阅读小测。'),
             const SizedBox(height: 16),
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: '标题'),
+              decoration: const InputDecoration(
+                labelText: '标题',
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -335,14 +362,19 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     initialValue: _stage,
-                    decoration: const InputDecoration(labelText: '阶段标签'),
+                    decoration: const InputDecoration(
+                      labelText: '阶段标签',
+                      border: OutlineInputBorder(),
+                    ),
                     items: const [
                       DropdownMenuItem(value: 'cet4', child: Text('CET4')),
                       DropdownMenuItem(value: 'cet6', child: Text('CET6')),
                       DropdownMenuItem(value: 'kaoyan', child: Text('考研')),
                     ],
                     onChanged: (value) {
-                      if (value == null) return;
+                      if (value == null) {
+                        return;
+                      }
                       setState(() {
                         _stage = value;
                       });
@@ -353,12 +385,17 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     initialValue: _level,
-                    decoration: const InputDecoration(labelText: '难度 Level'),
+                    decoration: const InputDecoration(
+                      labelText: '难度等级',
+                      border: OutlineInputBorder(),
+                    ),
                     items: const [1, 2, 3, 4]
                         .map((level) => DropdownMenuItem(value: level, child: Text('Level $level')))
                         .toList(),
                     onChanged: (value) {
-                      if (value == null) return;
+                      if (value == null) {
+                        return;
+                      }
                       setState(() {
                         _level = value;
                       });
@@ -370,7 +407,10 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                   child: TextField(
                     controller: _readingMinutesController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: '阅读分钟数'),
+                    decoration: const InputDecoration(
+                      labelText: '阅读分钟数',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
               ],
@@ -378,7 +418,10 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
             const SizedBox(height: 12),
             TextField(
               controller: _topicController,
-              decoration: const InputDecoration(labelText: '主题 topic'),
+              decoration: const InputDecoration(
+                labelText: '主题 topic',
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -386,28 +429,28 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
               minLines: 2,
               maxLines: 4,
               decoration: const InputDecoration(
-                labelText: 'Summary',
+                labelText: '摘要',
                 alignLabelWithHint: true,
-                hintText: 'Used in lists and as the imported article intro',
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _sourceUrlController,
               decoration: const InputDecoration(
-                labelText: 'Source URL',
-                hintText: 'Original article link',
+                labelText: '来源链接',
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('保存时保持发布状态'),
-              subtitle: const Text('打开后保存文章会立即保持为已发布状态。'),
-              value: _isPublished,
+              title: const Text('保存后发布到阅读库'),
+              subtitle: const Text('打开后，学习者可以在文章库中看到并开始阅读。'),
+              value: _desiredPublished,
               onChanged: (value) {
                 setState(() {
-                  _isPublished = value;
+                  _desiredPublished = value;
                 });
               },
             ),
@@ -415,26 +458,32 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
             TextField(
               controller: _paragraphsController,
               minLines: 8,
-              maxLines: 16,
+              maxLines: 18,
               decoration: const InputDecoration(
                 labelText: '正文段落',
-                alignLabelWithHint: true,
                 hintText: '每段之间空一行',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 10,
+              runSpacing: 10,
               children: [
                 FilledButton(
-                  onPressed: _savingArticle ? null : () => _saveArticle(publishAfterSave: false),
+                  onPressed: _savingArticle ? null : _saveArticle,
                   child: Text(_savingArticle ? '保存中...' : '保存文章'),
                 ),
-                FilledButton.tonal(
-                  onPressed: _savingArticle ? null : () => _saveArticle(publishAfterSave: true),
-                  child: const Text('保存并发布'),
+                OutlinedButton(
+                  onPressed: _articleId == null ? null : _loadArticle,
+                  child: const Text('重新加载'),
                 ),
+                if (_isPublished && _articleId != null)
+                  OutlinedButton(
+                    onPressed: () => context.push('/articles/${_articleId!}'),
+                    child: const Text('打开阅读页'),
+                  ),
               ],
             ),
           ],
@@ -451,12 +500,12 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('音频任务', style: Theme.of(context).textTheme.titleMedium),
+            Text('朗读音频状态', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             if (_articleId == null)
-              const Text('请先保存文章，再触发音频生成。')
+              const Text('先保存文章，音频任务才会出现。')
             else if (task == null)
-              const Text('当前还没有音频任务记录。')
+              const Text('当前没有音频任务。首次发布后会自动进入生成流程。')
             else ...[
               Text('状态：${task['status'] ?? '-'}'),
               const SizedBox(height: 6),
@@ -465,23 +514,16 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                 const SizedBox(height: 6),
                 Text('最近错误：${task['last_error']}'),
               ],
+              if ((task['article_audio_url']?.toString() ?? '').isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text('音频地址：${task['article_audio_url']}'),
+              ],
             ],
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _articleId == null ? null : _refreshAudioTask,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('刷新状态'),
-                ),
-                FilledButton.icon(
-                  onPressed: _articleId == null || _generatingAudio ? null : _generateAudio,
-                  icon: const Icon(Icons.graphic_eq),
-                  label: Text(_generatingAudio ? '触发中...' : '重新生成音频'),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: _articleId == null || _refreshingAudio ? null : _refreshAudioTask,
+              icon: const Icon(Icons.refresh),
+              label: Text(_refreshingAudio ? '刷新中...' : '刷新音频状态'),
             ),
           ],
         ),
@@ -489,13 +531,13 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     );
   }
 
-  Widget _buildJsonSection({
+  Widget _buildJsonCard({
     required String title,
     required String description,
-    required TextEditingController controller,
-    required VoidCallback? onSave,
-    required bool saving,
     required String helper,
+    required TextEditingController controller,
+    required bool saving,
+    required VoidCallback? onSave,
   }) {
     return Card(
       child: Padding(
@@ -505,12 +547,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
           children: [
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
-            Text(
-              description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
+            Text(description),
             const SizedBox(height: 8),
             Text(
               helper,
@@ -522,19 +559,16 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
             TextField(
               controller: controller,
               minLines: 10,
-              maxLines: 20,
+              maxLines: 18,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.tonal(
-                onPressed: onSave,
-                child: Text(saving ? '保存中...' : '保存'),
-              ),
+            FilledButton.tonal(
+              onPressed: onSave,
+              child: Text(saving ? '保存中...' : '保存配置'),
             ),
           ],
         ),
@@ -544,36 +578,60 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
 
   @override
   Widget build(BuildContext context) {
+    final adminState = ref.watch(adminConsoleProvider);
+
     return Scaffold(
-      appBar: AppBar(title: Text(_isCreateMode ? '新建文章' : '编辑文章')),
-      body: _loading
+      appBar: AppBar(
+        title: Text(_isCreateMode ? '新建文章' : '编辑文章'),
+      ),
+      body: !adminState.initialized
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _buildHeaderCard(),
-                const SizedBox(height: 12),
-                _buildAudioCard(),
-                const SizedBox(height: 12),
-                _buildJsonSection(
-                  title: '句子解析',
-                  description: '按数组维护重点句解析，保存后会直接覆盖该文章下已有解析。',
-                  controller: _analysesController,
-                  onSave: _articleId == null || _savingAnalyses ? null : _saveAnalyses,
-                  saving: _savingAnalyses,
-                  helper: '字段要求：sentence_index、sentence、translation、structure。',
-                ),
-                const SizedBox(height: 12),
-                _buildJsonSection(
-                  title: '阅读小测',
-                  description: '按数组维护题目，options 为选项数组，correct_option_index 从 1 开始。',
-                  controller: _quizController,
-                  onSave: _articleId == null || _savingQuiz ? null : _saveQuiz,
-                  saving: _savingQuiz,
-                  helper: '字段要求：question_index、stem、options、correct_option_index。',
-                ),
-              ],
-            ),
+          : !adminState.hasAdminApiKey
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('还没有配置 Admin Key，请先返回内容运营页保存管理密钥。'),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: () => context.pop(),
+                          child: const Text('返回内容运营页'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        _buildHeaderCard(),
+                        const SizedBox(height: 16),
+                        _buildAudioCard(),
+                        const SizedBox(height: 16),
+                        _buildJsonCard(
+                          title: '句子解析',
+                          description: '这里维护阅读页里重点句的翻译和结构说明，保存会覆盖现有解析。',
+                          helper: 'JSON 数组字段: sentence_index, sentence, translation, structure。',
+                          controller: _analysesController,
+                          saving: _savingAnalyses,
+                          onSave: _articleId == null || _savingAnalyses ? null : _saveAnalyses,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildJsonCard(
+                          title: '阅读小测',
+                          description: '这里配置文章阅读后的理解题，options 为字符串数组，correct_option_index 从 1 开始。',
+                          helper: 'JSON 数组字段: question_index, stem, options, correct_option_index。',
+                          controller: _quizController,
+                          saving: _savingQuiz,
+                          onSave: _articleId == null || _savingQuiz ? null : _saveQuiz,
+                        ),
+                      ],
+                    ),
     );
   }
 }
+

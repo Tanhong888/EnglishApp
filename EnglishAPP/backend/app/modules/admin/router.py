@@ -1,339 +1,124 @@
-﻿from datetime import datetime, timezone
-from typing import Literal
+﻿from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.response import success
 from app.db.article_content_sync import ensure_article_slug, ensure_article_source, summarize_paragraphs, sync_article_content_snapshot
-from app.db.models import Article, ArticleParagraph, Quiz, QuizOption, QuizQuestion, SentenceAnalysis, Word
+from app.db.models import Article, ArticleAudioTask, ArticleParagraph, Quiz, QuizOption, QuizQuestion, SentenceAnalysis, Word
 from app.db.session import get_db
-from app.tasks.audio_tasks import enqueue_article_audio_generation, get_article_audio_task, serialize_audio_task
 
 router = APIRouter()
 
 
-StageTag = Literal['cet4', 'cet6', 'kaoyan']
+def require_admin_key(x_admin_key: str | None = Header(default=None, alias='X-Admin-Key')) -> str:
+    if x_admin_key is None:
+        raise HTTPException(status_code=401, detail='missing_admin_api_key')
+    if x_admin_key != settings.admin_api_key:
+        raise HTTPException(status_code=403, detail='invalid_admin_api_key')
+    return x_admin_key
 
 
 class AdminArticleCreateRequest(BaseModel):
     title: str
-    stage_tag: StageTag
+    stage_tag: str
     level: int = Field(ge=1, le=4)
     topic: str
-    summary: str | None = None
-    source_url: str | None = None
-    reading_minutes: int = Field(ge=1, le=60)
+    reading_minutes: int = Field(ge=1)
     is_published: bool = False
     paragraphs: list[str] = Field(min_length=1)
-
-    @field_validator('title', 'topic')
-    @classmethod
-    def validate_non_empty_text(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError('field cannot be empty')
-        return cleaned
-
-    @field_validator('summary', 'source_url')
-    @classmethod
-    def normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
-
-    @field_validator('paragraphs')
-    @classmethod
-    def validate_paragraphs(cls, value: list[str]) -> list[str]:
-        paragraphs = [item.strip() for item in value if item.strip()]
-        if not paragraphs:
-            raise ValueError('paragraphs cannot be empty')
-        return paragraphs
+    summary: str | None = None
+    source_url: str | None = None
 
 
 class AdminArticleUpdateRequest(BaseModel):
     title: str | None = None
-    stage_tag: StageTag | None = None
+    stage_tag: str | None = None
     level: int | None = Field(default=None, ge=1, le=4)
     topic: str | None = None
+    reading_minutes: int | None = Field(default=None, ge=1)
+    paragraphs: list[str] | None = None
     summary: str | None = None
     source_url: str | None = None
-    reading_minutes: int | None = Field(default=None, ge=1, le=60)
-    is_published: bool | None = None
-    paragraphs: list[str] | None = Field(default=None, min_length=1)
-
-    @field_validator('title', 'topic', 'summary', 'source_url')
-    @classmethod
-    def validate_optional_non_empty_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError('field cannot be empty')
-        return cleaned
-
-    @field_validator('paragraphs')
-    @classmethod
-    def validate_optional_paragraphs(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        paragraphs = [item.strip() for item in value if item.strip()]
-        if not paragraphs:
-            raise ValueError('paragraphs cannot be empty')
-        return paragraphs
 
 
-class PublishArticleRequest(BaseModel):
-    is_published: bool = True
+class PublishRequest(BaseModel):
+    is_published: bool
 
 
-class GenerateAudioRequest(BaseModel):
-    force: bool = True
-
-
-class SentenceAnalysisInput(BaseModel):
+class SentenceAnalysisItemRequest(BaseModel):
     sentence_index: int = Field(ge=1)
     sentence: str
     translation: str | None = None
     structure: str | None = None
 
-    @field_validator('sentence')
-    @classmethod
-    def validate_sentence(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError('sentence cannot be empty')
-        return cleaned
 
-    @field_validator('translation', 'structure')
-    @classmethod
-    def normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
+class SentenceAnalysisReplaceRequest(BaseModel):
+    items: list[SentenceAnalysisItemRequest]
 
 
-class ReplaceSentenceAnalysesRequest(BaseModel):
-    items: list[SentenceAnalysisInput]
-
-
-class QuizQuestionInput(BaseModel):
+class QuizQuestionRequest(BaseModel):
     question_index: int = Field(ge=1)
     stem: str
-    options: list[str] = Field(min_length=2, max_length=6)
+    options: list[str] = Field(min_length=2)
     correct_option_index: int = Field(ge=1)
 
-    @field_validator('stem')
-    @classmethod
-    def validate_stem(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError('stem cannot be empty')
-        return cleaned
 
-    @field_validator('options')
-    @classmethod
-    def validate_options(cls, value: list[str]) -> list[str]:
-        options = [item.strip() for item in value if item.strip()]
-        if len(options) < 2:
-            raise ValueError('options must contain at least two non-empty items')
-        return options
-
-    @field_validator('correct_option_index')
-    @classmethod
-    def validate_correct_option_index(cls, value: int, info) -> int:
-        options = info.data.get('options') or []
-        if options and value > len(options):
-            raise ValueError('correct_option_index out of range')
-        return value
+class QuizReplaceRequest(BaseModel):
+    questions: list[QuizQuestionRequest]
 
 
-class ReplaceQuizRequest(BaseModel):
-    questions: list[QuizQuestionInput]
-
-
-class WordCreateRequest(BaseModel):
+class AdminWordCreateRequest(BaseModel):
     lemma: str
     phonetic: str | None = None
     pos: str | None = None
-    meaning_cn: str | None = None
-
-    @field_validator('lemma')
-    @classmethod
-    def validate_lemma(cls, value: str) -> str:
-        cleaned = value.strip().lower()
-        if not cleaned:
-            raise ValueError('lemma cannot be empty')
-        return cleaned
-
-    @field_validator('phonetic', 'pos', 'meaning_cn')
-    @classmethod
-    def normalize_optional_word_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
+    meaning_cn: str
 
 
-class WordUpdateRequest(BaseModel):
+class AdminWordUpdateRequest(BaseModel):
     phonetic: str | None = None
     pos: str | None = None
     meaning_cn: str | None = None
 
-    @field_validator('phonetic', 'pos', 'meaning_cn')
-    @classmethod
-    def normalize_optional_word_update_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
+
+def _article_audio_url(article_id: int) -> str:
+    return f'{settings.public_base_url}{settings.api_prefix}/articles/{article_id}/audio/file'
 
 
-
-def require_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
-    expected_key = settings.admin_api_key.strip()
-    if not expected_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='admin_api_key_not_configured')
-    if x_admin_key is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='missing_admin_key')
-    if x_admin_key != expected_key:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='invalid_admin_key')
-
-
-
-def _load_article_or_404(db: Session, article_id: int) -> Article:
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status_code=404, detail='article not found')
-    return article
-
-
-
-def _load_word_or_404(db: Session, word_id: int) -> Word:
-    word = db.get(Word, word_id)
-    if word is None:
-        raise HTTPException(status_code=404, detail='word not found')
-    return word
-
-
-
-def _load_paragraphs(db: Session, article_id: int) -> list[ArticleParagraph]:
+def _paragraphs_for_article(db: Session, article_id: int) -> list[ArticleParagraph]:
     return db.scalars(
         select(ArticleParagraph)
         .where(ArticleParagraph.article_id == article_id)
-        .order_by(ArticleParagraph.paragraph_index.asc())
+        .order_by(ArticleParagraph.paragraph_index.asc(), ArticleParagraph.id.asc())
     ).all()
 
 
+def _replace_paragraphs(db: Session, article: Article, paragraphs: list[str]) -> None:
+    existing = _paragraphs_for_article(db, article.id)
+    by_index = {item.paragraph_index: item for item in existing}
+    desired = set()
 
-def _replace_paragraphs(db: Session, article_id: int, paragraphs: list[str]) -> None:
-    db.execute(delete(ArticleParagraph).where(ArticleParagraph.article_id == article_id))
-    for index, paragraph in enumerate(paragraphs, start=1):
-        db.add(ArticleParagraph(article_id=article_id, paragraph_index=index, text=paragraph))
+    for index, text in enumerate(paragraphs, start=1):
+        desired.add(index)
+        paragraph = by_index.get(index)
+        if paragraph is None:
+            db.add(ArticleParagraph(article_id=article.id, paragraph_index=index, text=text))
+        else:
+            paragraph.text = text
 
-
-
-def _load_sentence_analyses(db: Session, article_id: int) -> list[SentenceAnalysis]:
-    return db.scalars(
-        select(SentenceAnalysis)
-        .where(SentenceAnalysis.article_id == article_id)
-        .order_by(SentenceAnalysis.sentence_index.asc(), SentenceAnalysis.id.asc())
-    ).all()
-
-
-
-def _replace_sentence_analyses(db: Session, article_id: int, items: list[SentenceAnalysisInput]) -> list[SentenceAnalysis]:
-    db.execute(delete(SentenceAnalysis).where(SentenceAnalysis.article_id == article_id))
-    rows: list[SentenceAnalysis] = []
-    for item in sorted(items, key=lambda row: row.sentence_index):
-        row = SentenceAnalysis(
-            article_id=article_id,
-            sentence_index=item.sentence_index,
-            sentence=item.sentence,
-            translation=item.translation,
-            structure=item.structure,
-        )
-        db.add(row)
-        rows.append(row)
-    db.flush()
-    return rows
+    for paragraph in existing:
+        if paragraph.paragraph_index not in desired:
+            db.delete(paragraph)
 
 
-
-def _load_quiz_bundle(db: Session, article_id: int) -> tuple[Quiz | None, list[QuizQuestion], dict[int, list[QuizOption]]]:
-    quiz = db.scalar(select(Quiz).where(Quiz.article_id == article_id))
-    if quiz is None:
-        return None, [], {}
-
-    questions = db.scalars(
-        select(QuizQuestion)
-        .where(QuizQuestion.quiz_id == quiz.id)
-        .order_by(QuizQuestion.question_index.asc(), QuizQuestion.id.asc())
-    ).all()
-    if not questions:
-        return quiz, [], {}
-
-    question_ids = [question.id for question in questions]
-    options = db.scalars(
-        select(QuizOption)
-        .where(QuizOption.question_id.in_(question_ids))
-        .order_by(QuizOption.question_id.asc(), QuizOption.option_index.asc(), QuizOption.id.asc())
-    ).all()
-    options_by_question: dict[int, list[QuizOption]] = {}
-    for option in options:
-        options_by_question.setdefault(option.question_id, []).append(option)
-
-    return quiz, questions, options_by_question
-
-
-
-def _replace_quiz(db: Session, article_id: int, payload: ReplaceQuizRequest) -> tuple[Quiz, list[QuizQuestion], dict[int, list[QuizOption]]]:
-    quiz, existing_questions, _ = _load_quiz_bundle(db, article_id)
-    if quiz is None:
-        quiz = Quiz(article_id=article_id)
-        db.add(quiz)
-        db.flush()
-
-    question_ids = [question.id for question in existing_questions]
-    if question_ids:
-        db.execute(delete(QuizOption).where(QuizOption.question_id.in_(question_ids)))
-        db.execute(delete(QuizQuestion).where(QuizQuestion.quiz_id == quiz.id))
-
-    created_questions: list[QuizQuestion] = []
-    options_by_question: dict[int, list[QuizOption]] = {}
-    for question_payload in sorted(payload.questions, key=lambda row: row.question_index):
-        question = QuizQuestion(
-            quiz_id=quiz.id,
-            question_index=question_payload.question_index,
-            stem=question_payload.stem,
-        )
-        db.add(question)
-        db.flush()
-        created_questions.append(question)
-
-        created_options: list[QuizOption] = []
-        for option_index, option_content in enumerate(question_payload.options, start=1):
-            option = QuizOption(
-                question_id=question.id,
-                option_index=option_index,
-                content=option_content,
-                is_correct=option_index == question_payload.correct_option_index,
-            )
-            db.add(option)
-            created_options.append(option)
-        options_by_question[question.id] = created_options
-
-    db.flush()
-    return quiz, created_questions, options_by_question
-
-
-
-def _serialize_article(article: Article, paragraphs: list[ArticleParagraph]) -> dict:
+def _serialize_admin_article(db: Session, article: Article) -> dict:
+    paragraph_count = db.scalar(select(func.count(ArticleParagraph.id)).where(ArticleParagraph.article_id == article.id)) or 0
     return {
         'id': article.id,
         'title': article.title,
@@ -342,160 +127,125 @@ def _serialize_article(article: Article, paragraphs: list[ArticleParagraph]) -> 
         'level': article.level,
         'topic': article.topic,
         'summary': article.summary,
-        'reading_minutes': article.reading_minutes,
         'status': article.status,
         'source_url': article.source_url,
+        'reading_minutes': article.reading_minutes,
         'is_published': article.is_published,
+        'paragraph_count': paragraph_count,
         'audio_status': article.audio_status,
-        'article_audio_url': article.article_audio_url,
-        'published_at': article.published_at.isoformat() if article.published_at else None,
-        'updated_at': article.updated_at.isoformat() if article.updated_at else None,
-        'paragraph_count': len(paragraphs),
-        'paragraphs': [{'index': paragraph.paragraph_index, 'text': paragraph.text} for paragraph in paragraphs],
+        'published_at': article.published_at.isoformat(),
     }
 
 
-
-def _serialize_sentence_analyses(article_id: int, rows: list[SentenceAnalysis]) -> dict:
-    return {
-        'article_id': article_id,
-        'items': [
-            {
-                'sentence_id': row.id,
-                'sentence_index': row.sentence_index,
-                'sentence': row.sentence,
-                'translation': row.translation,
-                'structure': row.structure,
-            }
-            for row in rows
-        ],
-    }
+def _sync_article_snapshot_and_source(db: Session, article: Article, paragraphs: list[str], source_type: str) -> None:
+    ensure_article_slug(db, article)
+    if article.summary is None:
+        article.summary = summarize_paragraphs(paragraphs)
+    ensure_article_source(
+        db,
+        article=article,
+        source_type=source_type,
+        source_name='admin_console' if source_type == 'manual' else None,
+        source_url=article.source_url,
+    )
+    sync_article_content_snapshot(db, article=article, paragraphs=paragraphs)
 
 
+def _enqueue_audio_task(db: Session, article: Article) -> ArticleAudioTask:
+    task = db.scalar(select(ArticleAudioTask).where(ArticleAudioTask.article_id == article.id))
+    if task is None:
+        task = ArticleAudioTask(article_id=article.id)
+        db.add(task)
+        db.flush()
 
-def _serialize_quiz(article_id: int, questions: list[QuizQuestion], options_by_question: dict[int, list[QuizOption]]) -> dict:
-    return {
-        'article_id': article_id,
-        'questions': [
-            {
-                'question_id': question.id,
-                'question_index': question.question_index,
-                'stem': question.stem,
-                'correct_option_index': next(
-                    (option.option_index for option in options_by_question.get(question.id, []) if option.is_correct),
-                    None,
-                ),
-                'options': [
-                    {
-                        'option_id': option.id,
-                        'option_index': option.option_index,
-                        'content': option.content,
-                        'is_correct': option.is_correct,
-                    }
-                    for option in options_by_question.get(question.id, [])
-                ],
-            }
-            for question in questions
-        ],
-    }
+    task.status = 'pending'
+    task.attempt_count = 0
+    task.max_attempts = settings.tts_max_attempts
+    task.next_retry_at = None
+    task.processing_started_at = None
+    task.completed_at = None
+    task.last_error = None
+    article.audio_status = 'pending'
+    article.article_audio_url = None
+    return task
 
 
+def _progress_audio_task(db: Session, article: Article, task: ArticleAudioTask) -> ArticleAudioTask:
+    if task.status in {'ready', 'failed'}:
+        return task
 
-def _serialize_word(word: Word) -> dict:
-    return {
-        'id': word.id,
-        'lemma': word.lemma,
-        'phonetic': word.phonetic,
-        'pos': word.pos,
-        'meaning_cn': word.meaning_cn,
-    }
+    task.attempt_count += 1
+    task.processing_started_at = datetime.now(UTC).replace(tzinfo=None)
+
+    if settings.tts_mock_fail_keyword in article.title:
+        if task.attempt_count >= task.max_attempts:
+            task.status = 'failed'
+            task.completed_at = datetime.now(UTC).replace(tzinfo=None)
+            task.last_error = 'mock_tts_generation_failed'
+            article.audio_status = 'failed'
+            article.article_audio_url = None
+        else:
+            task.status = 'pending'
+            task.next_retry_at = datetime.now(UTC).replace(tzinfo=None)
+            article.audio_status = 'pending'
+        db.commit()
+        db.refresh(task)
+        return task
+
+    task.status = 'ready'
+    task.completed_at = datetime.now(UTC).replace(tzinfo=None)
+    article.audio_status = 'ready'
+    article.article_audio_url = _article_audio_url(article.id)
+    db.commit()
+    db.refresh(task)
+    return task
 
 
 @router.get('/articles')
 def list_admin_articles(
+    _: str = Depends(require_admin_key),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
+    published: bool | None = None,
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
-    published: bool | None = None,
-    q: str = Query(default=''),
-    _: None = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    query = select(Article)
+    query = select(Article).order_by(Article.created_at.desc(), Article.id.desc())
     if published is not None:
-        query = query.where(Article.is_published.is_(published))
-    q = q.strip()
+        query = query.where(Article.is_published == published)
     if q:
-        pattern = f'%{q}%'
-        query = query.where(
-            or_(
-                Article.title.ilike(pattern),
-                Article.summary.ilike(pattern),
-                Article.source_url.ilike(pattern),
-                Article.topic.ilike(pattern),
-            )
-        )
+        fuzzy = f'%{q.strip()}%'
+        query = query.where(or_(Article.title.ilike(fuzzy), Article.summary.ilike(fuzzy), Article.source_url.ilike(fuzzy)))
 
-    query = query.order_by(Article.updated_at.desc(), Article.id.desc())
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    offset = (page - 1) * size
-    articles = db.scalars(query.offset(offset).limit(size)).all()
-
-    items = []
-    for article in articles:
-        paragraph_count = db.scalar(
-            select(func.count()).select_from(ArticleParagraph).where(ArticleParagraph.article_id == article.id)
-        ) or 0
-        items.append(
-            {
-                'id': article.id,
-                'title': article.title,
-                'stage': article.stage_tag,
-                'level': article.level,
-                'topic': article.topic,
-                'summary': article.summary,
-                'source_url': article.source_url,
-                'reading_minutes': article.reading_minutes,
-                'status': article.status,
-                'is_published': article.is_published,
-                'audio_status': article.audio_status,
-                'published_at': article.published_at.isoformat() if article.published_at else None,
-                'updated_at': article.updated_at.isoformat() if article.updated_at else None,
-                'paragraph_count': paragraph_count,
-            }
-        )
-
+    articles = db.scalars(query).all()
+    total = len(articles)
+    start = (page - 1) * size
+    items = articles[start:start + size]
     return success(
         {
-            'items': items,
+            'items': [_serialize_admin_article(db, article) for article in items],
             'page': page,
             'size': size,
             'total': total,
-            'has_next': offset + len(items) < total,
+            'has_next': start + len(items) < total,
         }
     )
 
 
 @router.get('/articles/{article_id}')
-def get_admin_article(
-    article_id: int,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    article = _load_article_or_404(db, article_id)
-    paragraphs = _load_paragraphs(db, article_id)
-    return success(_serialize_article(article, paragraphs))
+def admin_article_detail(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+    data = _serialize_admin_article(db, article)
+    data['paragraphs'] = [{'index': p.paragraph_index, 'text': p.text} for p in _paragraphs_for_article(db, article_id)]
+    return success(data)
 
 
 @router.post('/articles')
-def create_admin_article(
-    payload: AdminArticleCreateRequest,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+def create_admin_article(payload: AdminArticleCreateRequest, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
     article = Article(
         title=payload.title,
-        slug=None,
         stage_tag=payload.stage_tag,
         level=payload.level,
         topic=payload.topic,
@@ -504,263 +254,276 @@ def create_admin_article(
         status='published' if payload.is_published else 'draft',
         source_url=payload.source_url,
         is_published=payload.is_published,
-        audio_status='pending' if payload.is_published else 'pending',
-        article_audio_url=None,
-        published_at=now,
+        audio_status='pending',
     )
     db.add(article)
     db.flush()
-    _replace_paragraphs(db, article.id, payload.paragraphs)
-    ensure_article_slug(db, article)
+    _replace_paragraphs(db, article, payload.paragraphs)
     if article.summary is None:
         article.summary = summarize_paragraphs(payload.paragraphs)
-    ensure_article_source(
-        db,
-        article=article,
-        source_type='manual',
-        source_name='admin_console',
-        source_url=payload.source_url,
-    )
-    sync_article_content_snapshot(db, article=article, paragraphs=payload.paragraphs)
+    _sync_article_snapshot_and_source(db, article, payload.paragraphs, source_type='manual')
     if payload.is_published:
-        enqueue_article_audio_generation(db, article, force=True)
+        _enqueue_audio_task(db, article)
     db.commit()
     db.refresh(article)
-
-    paragraphs = _load_paragraphs(db, article.id)
-    return success(_serialize_article(article, paragraphs))
+    return success(_serialize_admin_article(db, article))
 
 
 @router.patch('/articles/{article_id}')
 def update_admin_article(
     article_id: int,
     payload: AdminArticleUpdateRequest,
-    _: None = Depends(require_admin_key),
+    _: str = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    article = _load_article_or_404(db, article_id)
-    became_published = False
-    should_regenerate_audio = False
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
 
-    if payload.title is not None:
-        article.title = payload.title
-    if payload.stage_tag is not None:
-        article.stage_tag = payload.stage_tag
-    if payload.level is not None:
-        article.level = payload.level
-    if payload.topic is not None:
-        article.topic = payload.topic
-    if payload.summary is not None:
-        article.summary = payload.summary
-    if payload.source_url is not None:
-        article.source_url = payload.source_url
-    if payload.reading_minutes is not None:
-        article.reading_minutes = payload.reading_minutes
-        if payload.paragraphs is None:
-            sync_article_content_snapshot(
-                db,
-                article=article,
-                paragraphs=[paragraph.text for paragraph in _load_paragraphs(db, article.id)],
-            )
-    if payload.is_published is not None:
-        if payload.is_published and not article.is_published:
-            article.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            became_published = True
-        article.is_published = payload.is_published
-        article.status = 'published' if payload.is_published else 'draft'
-    if payload.paragraphs is not None:
-        _replace_paragraphs(db, article.id, payload.paragraphs)
-        if payload.summary is None:
-            article.summary = summarize_paragraphs(payload.paragraphs)
-        sync_article_content_snapshot(db, article=article, paragraphs=payload.paragraphs)
-        if article.is_published or payload.is_published is True:
-            should_regenerate_audio = True
+    update_data = payload.model_dump(exclude_unset=True)
+    paragraphs = update_data.pop('paragraphs', None)
+    for key, value in update_data.items():
+        setattr(article, key, value)
 
-    ensure_article_slug(db, article)
-    ensure_article_source(
-        db,
-        article=article,
-        source_type='manual',
-        source_name='admin_console',
-        source_url=article.source_url,
-    )
-
-    if became_published or should_regenerate_audio:
-        enqueue_article_audio_generation(db, article, force=True)
-
+    if paragraphs is not None:
+        _replace_paragraphs(db, article, paragraphs)
+    paragraph_texts = [item.text for item in _paragraphs_for_article(db, article.id)]
+    if payload.summary is None and paragraphs is not None:
+        article.summary = summarize_paragraphs(paragraph_texts)
+    _sync_article_snapshot_and_source(db, article, paragraph_texts, source_type='manual')
     db.commit()
     db.refresh(article)
-    paragraphs = _load_paragraphs(db, article.id)
-    return success(_serialize_article(article, paragraphs))
+    return success(_serialize_admin_article(db, article))
 
 
 @router.post('/articles/{article_id}/publish')
 def publish_admin_article(
     article_id: int,
-    payload: PublishArticleRequest,
-    _: None = Depends(require_admin_key),
+    payload: PublishRequest,
+    _: str = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    article = _load_article_or_404(db, article_id)
-    if payload.is_published and not article.is_published:
-        article.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+
     article.is_published = payload.is_published
     article.status = 'published' if payload.is_published else 'draft'
     if payload.is_published:
-        enqueue_article_audio_generation(db, article, force=True)
-
+        _enqueue_audio_task(db, article)
     db.commit()
     db.refresh(article)
-    paragraphs = _load_paragraphs(db, article.id)
-    return success(_serialize_article(article, paragraphs))
+    return success(_serialize_admin_article(db, article))
 
 
 @router.get('/articles/{article_id}/audio-task')
-def get_admin_audio_task(
-    article_id: int,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    article = _load_article_or_404(db, article_id)
-    task = get_article_audio_task(db, article_id)
-    return success({'article_id': article_id, 'task': serialize_audio_task(task, article)})
-
-
-@router.post('/articles/{article_id}/audio/generate')
-def generate_admin_audio(
-    article_id: int,
-    payload: GenerateAudioRequest,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    article = _load_article_or_404(db, article_id)
-    if not article.is_published:
-        raise HTTPException(status_code=409, detail='article must be published before audio generation')
-
-    task = enqueue_article_audio_generation(db, article, force=payload.force)
-    db.commit()
-    db.refresh(article)
-    return success({'article_id': article_id, 'task': serialize_audio_task(task, article)})
+def admin_audio_task(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+    task = db.scalar(select(ArticleAudioTask).where(ArticleAudioTask.article_id == article.id))
+    if task is not None:
+        task = _progress_audio_task(db, article, task)
+    task_data: dict[str, Any] | None = None
+    if task is not None:
+        task_data = {
+            'id': task.id,
+            'status': task.status,
+            'attempt_count': task.attempt_count,
+            'max_attempts': task.max_attempts,
+            'last_error': task.last_error,
+            'article_audio_url': article.article_audio_url,
+        }
+    return success({'task': task_data})
 
 
 @router.get('/articles/{article_id}/sentence-analyses')
-def get_admin_sentence_analyses(
-    article_id: int,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    _load_article_or_404(db, article_id)
-    rows = _load_sentence_analyses(db, article_id)
-    return success(_serialize_sentence_analyses(article_id, rows))
+def admin_get_sentence_analyses(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+    items = db.scalars(
+        select(SentenceAnalysis)
+        .where(SentenceAnalysis.article_id == article_id)
+        .order_by(SentenceAnalysis.sentence_index.asc(), SentenceAnalysis.id.asc())
+    ).all()
+    return success({'items': [{'sentence_index': item.sentence_index, 'sentence': item.sentence, 'translation': item.translation, 'structure': item.structure} for item in items]})
 
 
 @router.put('/articles/{article_id}/sentence-analyses')
-def replace_admin_sentence_analyses(
+def admin_replace_sentence_analyses(
     article_id: int,
-    payload: ReplaceSentenceAnalysesRequest,
-    _: None = Depends(require_admin_key),
+    payload: SentenceAnalysisReplaceRequest,
+    _: str = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    _load_article_or_404(db, article_id)
-    _replace_sentence_analyses(db, article_id, payload.items)
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+    db.execute(delete(SentenceAnalysis).where(SentenceAnalysis.article_id == article_id))
+    for item in payload.items:
+        db.add(
+            SentenceAnalysis(
+                article_id=article_id,
+                sentence_index=item.sentence_index,
+                sentence=item.sentence,
+                translation=item.translation,
+                structure=item.structure,
+            )
+        )
     db.commit()
-    rows = _load_sentence_analyses(db, article_id)
-    return success(_serialize_sentence_analyses(article_id, rows))
+    return success(
+        {
+            'items': [
+                {
+                    'sentence_index': item.sentence_index,
+                    'sentence': item.sentence,
+                    'translation': item.translation,
+                    'structure': item.structure,
+                }
+                for item in db.scalars(
+                    select(SentenceAnalysis)
+                    .where(SentenceAnalysis.article_id == article_id)
+                    .order_by(SentenceAnalysis.sentence_index.asc(), SentenceAnalysis.id.asc())
+                ).all()
+            ]
+        }
+    )
 
 
 @router.get('/articles/{article_id}/quiz')
-def get_admin_quiz(
-    article_id: int,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    _load_article_or_404(db, article_id)
-    _, questions, options_by_question = _load_quiz_bundle(db, article_id)
-    return success(_serialize_quiz(article_id, questions, options_by_question))
+def admin_get_quiz(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
 
+    quiz = db.scalar(select(Quiz).where(Quiz.article_id == article_id))
+    if quiz is None:
+        return success({'questions': []})
+
+    questions = db.scalars(
+        select(QuizQuestion)
+        .where(QuizQuestion.quiz_id == quiz.id)
+        .order_by(QuizQuestion.question_index.asc(), QuizQuestion.id.asc())
+    ).all()
+
+    serialized_questions: list[dict[str, Any]] = []
+    for question in questions:
+        options = db.scalars(
+            select(QuizOption)
+            .where(QuizOption.question_id == question.id)
+            .order_by(QuizOption.option_index.asc(), QuizOption.id.asc())
+        ).all()
+        correct_option_index = next((option.option_index for option in options if option.is_correct), None)
+        serialized_questions.append(
+            {
+                'question_index': question.question_index,
+                'stem': question.stem,
+                'options': [option.content for option in options],
+                'correct_option_index': correct_option_index,
+            }
+        )
+
+    return success({'questions': serialized_questions})
 
 @router.put('/articles/{article_id}/quiz')
-def replace_admin_quiz(
+def admin_replace_quiz(
     article_id: int,
-    payload: ReplaceQuizRequest,
-    _: None = Depends(require_admin_key),
+    payload: QuizReplaceRequest,
+    _: str = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    _load_article_or_404(db, article_id)
-    _, questions, options_by_question = _replace_quiz(db, article_id, payload)
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail='article not found')
+
+    quiz = db.scalar(select(Quiz).where(Quiz.article_id == article_id))
+    if quiz is not None:
+        question_ids = db.scalars(select(QuizQuestion.id).where(QuizQuestion.quiz_id == quiz.id)).all()
+        if question_ids:
+            db.execute(delete(QuizOption).where(QuizOption.question_id.in_(question_ids)))
+        db.execute(delete(QuizQuestion).where(QuizQuestion.quiz_id == quiz.id))
+    else:
+        quiz = Quiz(article_id=article_id)
+        db.add(quiz)
+        db.flush()
+
+    serialized_questions: list[dict] = []
+    for item in payload.questions:
+        question = QuizQuestion(quiz_id=quiz.id, question_index=item.question_index, stem=item.stem)
+        db.add(question)
+        db.flush()
+        for option_index, option_text in enumerate(item.options, start=1):
+            db.add(
+                QuizOption(
+                    question_id=question.id,
+                    option_index=option_index,
+                    content=option_text,
+                    is_correct=(option_index == item.correct_option_index),
+                )
+            )
+        serialized_questions.append(
+            {
+                'question_index': item.question_index,
+                'stem': item.stem,
+                'options': item.options,
+                'correct_option_index': item.correct_option_index,
+            }
+        )
     db.commit()
-    return success(_serialize_quiz(article_id, questions, options_by_question))
+    return success({'questions': serialized_questions})
 
 
 @router.get('/words')
-def list_admin_words(
+def admin_list_words(
+    _: str = Depends(require_admin_key),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
-    q: str | None = None,
-    _: None = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    query = select(Word)
+    query = select(Word).order_by(Word.id.desc())
     if q:
-        normalized = f'%{q.strip().lower()}%'
-        query = query.where(
-            func.lower(Word.lemma).like(normalized)
-            | func.lower(func.coalesce(Word.meaning_cn, '')).like(normalized)
-            | func.lower(func.coalesce(Word.pos, '')).like(normalized)
-        )
-
-    query = query.order_by(Word.lemma.asc(), Word.id.asc())
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    offset = (page - 1) * size
-    items = db.scalars(query.offset(offset).limit(size)).all()
-
+        fuzzy = f'%{q.strip()}%'
+        query = query.where(or_(Word.lemma.ilike(fuzzy), Word.meaning_cn.ilike(fuzzy), Word.pos.ilike(fuzzy)))
+    words = db.scalars(query).all()
+    total = len(words)
+    start = (page - 1) * size
+    items = words[start:start + size]
     return success(
         {
-            'items': [_serialize_word(word) for word in items],
+            'items': [{'id': word.id, 'lemma': word.lemma, 'phonetic': word.phonetic, 'pos': word.pos, 'meaning_cn': word.meaning_cn} for word in items],
             'page': page,
             'size': size,
             'total': total,
-            'has_next': offset + len(items) < total,
+            'has_next': start + len(items) < total,
         }
     )
 
 
 @router.post('/words')
-def create_admin_word(
-    payload: WordCreateRequest,
-    _: None = Depends(require_admin_key),
-    db: Session = Depends(get_db),
-) -> dict:
-    exists = db.scalar(select(Word).where(func.lower(Word.lemma) == payload.lemma))
-    if exists is not None:
-        raise HTTPException(status_code=409, detail='word already exists')
-
-    word = Word(
-        lemma=payload.lemma,
-        phonetic=payload.phonetic,
-        pos=payload.pos,
-        meaning_cn=payload.meaning_cn,
-    )
+def admin_create_word(payload: AdminWordCreateRequest, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+    word = Word(lemma=payload.lemma.lower(), phonetic=payload.phonetic, pos=payload.pos, meaning_cn=payload.meaning_cn)
     db.add(word)
     db.commit()
     db.refresh(word)
-    return success(_serialize_word(word))
+    return success({'id': word.id, 'lemma': word.lemma, 'phonetic': word.phonetic, 'pos': word.pos, 'meaning_cn': word.meaning_cn})
 
 
 @router.patch('/words/{word_id}')
-def update_admin_word(
+def admin_update_word(
     word_id: int,
-    payload: WordUpdateRequest,
-    _: None = Depends(require_admin_key),
+    payload: AdminWordUpdateRequest,
+    _: str = Depends(require_admin_key),
     db: Session = Depends(get_db),
 ) -> dict:
-    word = _load_word_or_404(db, word_id)
-    if payload.phonetic is not None:
-        word.phonetic = payload.phonetic
-    if payload.pos is not None:
-        word.pos = payload.pos
-    if payload.meaning_cn is not None:
-        word.meaning_cn = payload.meaning_cn
+    word = db.get(Word, word_id)
+    if word is None:
+        raise HTTPException(status_code=404, detail='word not found')
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(word, key, value)
     db.commit()
     db.refresh(word)
-    return success(_serialize_word(word))
+    return success({'id': word.id, 'lemma': word.lemma, 'phonetic': word.phonetic, 'pos': word.pos, 'meaning_cn': word.meaning_cn})
+
+

@@ -2,20 +2,14 @@
 import 'package:go_router/go_router.dart';
 
 import '../../features/admin/admin_article_editor_page.dart';
-import '../../features/admin/admin_console_page.dart';
-import '../../features/analysis/analysis_page.dart';
+import '../../features/admin/admin_content_page.dart';
 import '../../features/articles/article_detail_page.dart';
 import '../../features/articles/articles_page.dart';
 import '../../features/auth/login_page.dart';
 import '../../features/home/home_page.dart';
-import '../../features/home/online_articles_page.dart';
 import '../../features/me/analytics_page.dart';
-import '../../features/me/favorites_page.dart';
-import '../../features/me/learning_records_page.dart';
 import '../../features/me/me_page.dart';
 import '../../features/me/settings_page.dart';
-import '../../features/quiz/quiz_page.dart';
-import '../../features/quiz/quiz_result_page.dart';
 import '../../features/vocab/vocab_detail_page.dart';
 import '../../features/vocab/vocab_page.dart';
 import '../../shared/widgets/splash_page.dart';
@@ -28,22 +22,15 @@ class AppRouter {
       GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
       GoRoute(path: '/home', builder: (_, __) => const HomePage()),
       GoRoute(path: '/articles', builder: (_, __) => const ArticlesPage()),
-      GoRoute(path: '/web-articles', builder: (_, __) => const OnlineArticlesPage()),
       GoRoute(
         path: '/articles/:articleId',
-        builder: (_, state) => ArticleDetailPage(articleId: state.pathParameters['articleId']!),
+        builder: (_, state) => ArticleDetailPage(articleId: int.parse(state.pathParameters['articleId']!)),
       ),
+      GoRoute(path: '/admin/content', builder: (_, __) => const AdminContentPage()),
+      GoRoute(path: '/admin/articles/new', builder: (_, __) => const AdminArticleEditorPage()),
       GoRoute(
-        path: '/articles/:articleId/analysis',
-        builder: (_, state) => AnalysisPage(articleId: state.pathParameters['articleId']!),
-      ),
-      GoRoute(
-        path: '/articles/:articleId/quiz',
-        builder: (_, state) => QuizPage(articleId: state.pathParameters['articleId']!),
-      ),
-      GoRoute(
-        path: '/quiz/attempts/:attemptId/result',
-        builder: (_, state) => QuizResultPage(attemptId: state.pathParameters['attemptId']!),
+        path: '/admin/articles/:articleId',
+        builder: (_, state) => AdminArticleEditorPage(articleId: int.parse(state.pathParameters['articleId']!)),
       ),
       GoRoute(path: '/vocab', builder: (_, __) => const VocabPage()),
       GoRoute(
@@ -52,18 +39,11 @@ class AppRouter {
       ),
       GoRoute(path: '/me', builder: (_, __) => const MePage()),
       GoRoute(path: '/me/analytics', builder: (_, __) => const MeAnalyticsPage()),
-      GoRoute(path: '/me/favorites', builder: (_, __) => const FavoritesPage()),
-      GoRoute(path: '/me/learning-records', builder: (_, __) => const LearningRecordsPage()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsPage()),
-      GoRoute(path: '/admin', builder: (_, __) => const AdminConsolePage()),
-      GoRoute(path: '/admin/articles/new', builder: (_, __) => const AdminArticleEditorPage()),
-      GoRoute(
-        path: '/admin/articles/:articleId',
-        builder: (_, state) => AdminArticleEditorPage(articleId: state.pathParameters['articleId']!),
-      ),
     ],
     errorBuilder: (_, state) => Scaffold(
       body: Center(child: Text('Route not found: ${state.uri.toString()}')),
     ),
   );
 }
+

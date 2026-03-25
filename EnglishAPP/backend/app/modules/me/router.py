@@ -31,27 +31,19 @@ def me_stats(current_user: User = Depends(get_current_user), db: Session = Depen
     read_articles = db.scalar(
         select(func.count(func.distinct(UserReadingProgress.article_id))).where(UserReadingProgress.user_id == current_user.id)
     ) or 0
+    vocab_count = db.scalar(select(func.count(UserVocabEntry.id)).where(UserVocabEntry.user_id == current_user.id)) or 0
     study_days = db.scalar(
         select(func.count(func.distinct(func.date(UserReadingProgress.last_read_at)))).where(
             UserReadingProgress.user_id == current_user.id
         )
     ) or 0
-    vocab_count = db.scalar(select(func.count(UserVocabEntry.id)).where(UserVocabEntry.user_id == current_user.id)) or 0
-
-    completion_rate = 0.0
-    total_progressed = read_articles
-    if total_progressed > 0:
-        completed = db.scalar(
-            select(func.count(func.distinct(UserReadingProgress.article_id)))
-            .where(
-                UserReadingProgress.user_id == current_user.id,
-                or_(
-                    UserReadingProgress.completed_at.is_not(None),
-                    UserReadingProgress.progress_percent >= 100,
-                ),
-            )
-        ) or 0
-        completion_rate = round(completed / total_progressed, 2)
+    completed_articles = db.scalar(
+        select(func.count(func.distinct(UserReadingProgress.article_id))).where(
+            UserReadingProgress.user_id == current_user.id,
+            UserReadingProgress.completed_at.is_not(None),
+        )
+    ) or 0
+    completion_rate = round(completed_articles / read_articles, 2) if read_articles else 0.0
 
     return success(
         {
@@ -65,7 +57,7 @@ def me_stats(current_user: User = Depends(get_current_user), db: Session = Depen
 
 @router.get('/learning-records')
 def learning_records(
-    days: int | None = Query(default=None, ge=1, le=3650),
+    days: int | None = Query(default=None, ge=1, le=365),
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = Query(default=1, ge=1),
@@ -73,36 +65,24 @@ def learning_records(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    query = (
-        select(func.date(UserReadingProgress.last_read_at), func.count(UserReadingProgress.id))
-        .where(UserReadingProgress.user_id == current_user.id)
+    query = select(func.date(UserReadingProgress.last_read_at), func.count(UserReadingProgress.id)).where(
+        UserReadingProgress.user_id == current_user.id
     )
 
     if days is not None:
-        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
-        query = query.where(UserReadingProgress.last_read_at >= cutoff)
-
+        start_dt = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+        query = query.where(UserReadingProgress.last_read_at >= start_dt)
     if date_from is not None:
-        query = query.where(UserReadingProgress.last_read_at >= datetime.combine(date_from, datetime.min.time()))
-
+        query = query.where(func.date(UserReadingProgress.last_read_at) >= date_from.isoformat())
     if date_to is not None:
-        query = query.where(UserReadingProgress.last_read_at <= datetime.combine(date_to, datetime.max.time()))
+        query = query.where(func.date(UserReadingProgress.last_read_at) <= date_to.isoformat())
 
     rows = db.execute(
-        query.group_by(func.date(UserReadingProgress.last_read_at))
-        .order_by(func.date(UserReadingProgress.last_read_at).desc())
-        .limit(365)
+        query.group_by(func.date(UserReadingProgress.last_read_at)).order_by(func.date(UserReadingProgress.last_read_at).desc())
     ).all()
 
-    records = [
-        {
-            'date': str(date_value),
-            'articles': count_value,
-            'minutes': count_value * 8,
-        }
-        for date_value, count_value in rows
-    ]
-    return success(paginate(records, page=page, size=size))
+    items = [{'date': str(day), 'articles': count_value, 'minutes': count_value * 8} for day, count_value in rows]
+    return success(paginate(items, page=page, size=size))
 
 
 @router.get('/vocab')
@@ -203,8 +183,9 @@ def me_vocab_entry_detail(
             'pos': word.pos,
             'meaning_cn': word.meaning_cn,
             'source_count': len(sources),
-            'mastered': all(item['mastered'] for item in sources),
+            'mastered': all(item['mastered'] for item in sources) if sources else False,
             'sources': sources,
+            'last_reviewed_at': datetime.now(UTC).replace(tzinfo=None).isoformat(),
         }
     )
 
@@ -220,13 +201,15 @@ def me_favorites(
         select(UserArticleFavorite, Article)
         .join(Article, Article.id == UserArticleFavorite.article_id)
         .where(UserArticleFavorite.user_id == current_user.id, UserArticleFavorite.is_favorited.is_(True))
-        .order_by(UserArticleFavorite.favorited_at.desc())
+        .order_by(UserArticleFavorite.favorited_at.desc(), UserArticleFavorite.id.desc())
     ).all()
 
     items = [
         {
             'article_id': article.id,
             'title': article.title,
+            'summary': article.summary,
+            'reading_minutes': article.reading_minutes,
             'favorited_at': favorite.favorited_at.isoformat(),
         }
         for favorite, article in rows

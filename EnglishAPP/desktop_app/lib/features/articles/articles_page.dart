@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,61 +13,48 @@ class ArticlesPage extends ConsumerStatefulWidget {
 }
 
 class _ArticlesPageState extends ConsumerState<ArticlesPage> {
-  String _stage = 'all';
+  Future<List<Map<String, dynamic>>>? _future;
+  String? _stage;
   String _sort = 'recommended';
-  int _page = 1;
-  final int _size = 20;
-  late Future<Map<String, dynamic>> _future;
-  bool _syncedQueryStage = false;
 
   @override
   void initState() {
     super.initState();
-    _future = _loadData();
+    _future = _loadArticles();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_syncedQueryStage) {
-      return;
+  Future<List<Map<String, dynamic>>> _loadArticles() async {
+    final api = ref.read(authApiProvider);
+    final query = <String, String>{'page': '1', 'size': '20', 'sort': _sort};
+    if (_stage != null && _stage!.isNotEmpty) {
+      query['stage'] = _stage!;
     }
 
-    final stage = GoRouterState.of(context).uri.queryParameters['stage'];
-    if (stage != null && {'all', 'cet4', 'cet6', 'kaoyan'}.contains(stage)) {
-      _stage = stage;
-      _page = 1;
-      _future = _loadData();
-    }
-    _syncedQueryStage = true;
-  }
-
-  Future<Map<String, dynamic>> _loadData() {
-    final api = ref.read(apiClientProvider);
-    final query = <String, String>{
-      'page': _page.toString(),
-      'size': _size.toString(),
-      'sort': _sort,
-    };
-    if (_stage != 'all') {
-      query['stage'] = _stage;
-    }
-    return api.get('/articles', query: query);
+    final response = await api.get('/articles', query: query);
+    final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final rawItems = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
+    return rawItems.map((item) => item.cast<String, dynamic>()).toList();
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = _loadData();
+      _future = _loadArticles();
     });
     await _future;
   }
 
-  void _reload({bool resetPage = false}) {
+  void _applyStage(String? stage) {
     setState(() {
-      if (resetPage) {
-        _page = 1;
-      }
-      _future = _loadData();
+      _stage = stage;
+      _future = _loadArticles();
+    });
+  }
+
+  void _applySort(String? sort) {
+    if (sort == null) return;
+    setState(() {
+      _sort = sort;
+      _future = _loadArticles();
     });
   }
 
@@ -76,10 +63,10 @@ class _ArticlesPageState extends ConsumerState<ArticlesPage> {
     final location = GoRouterState.of(context).uri.path;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('分级阅读')),
+      appBar: AppBar(title: const Text('文章库')),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: FutureBuilder<Map<String, dynamic>>(
+        child: FutureBuilder<List<Map<String, dynamic>>>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
@@ -89,130 +76,105 @@ class _ArticlesPageState extends ConsumerState<ArticlesPage> {
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  const SizedBox(height: 160),
+                  const SizedBox(height: 140),
                   Center(child: Text('加载失败：${snapshot.error}')),
                 ],
               );
             }
 
-            final data = ((snapshot.data ?? const <String, dynamic>{})['data'] as Map?)?.cast<String, dynamic>() ??
-                <String, dynamic>{};
-            final items = (data['items'] as List?)?.cast<Map>() ?? const <Map>[];
-            final currentPage = (data['page'] as num?)?.toInt() ?? _page;
-            final total = (data['total'] as num?)?.toInt() ?? items.length;
-            final hasNext = data['has_next'] as bool? ?? false;
-
+            final items = snapshot.data ?? const <Map<String, dynamic>>[];
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Expanded(
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildStageChip('all', '全部'),
-                          _buildStageChip('cet4', '四级'),
-                          _buildStageChip('cet6', '六级'),
-                          _buildStageChip('kaoyan', '考研'),
-                        ],
-                      ),
+                    ChoiceChip(
+                      label: const Text('全部'),
+                      selected: _stage == null,
+                      onSelected: (_) => _applyStage(null),
                     ),
-                    const SizedBox(width: 12),
-                    DropdownButton<String>(
-                      value: _sort,
-                      items: const [
-                        DropdownMenuItem(value: 'recommended', child: Text('推荐')),
-                        DropdownMenuItem(value: 'latest', child: Text('最新')),
-                        DropdownMenuItem(value: 'hot', child: Text('热门')),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        _sort = value;
-                        _reload(resetPage: true);
-                      },
+                    ChoiceChip(
+                      label: const Text('CET4'),
+                      selected: _stage == 'cet4',
+                      onSelected: (_) => _applyStage('cet4'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('CET6'),
+                      selected: _stage == 'cet6',
+                      onSelected: (_) => _applyStage('cet6'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('考研'),
+                      selected: _stage == 'kaoyan',
+                      onSelected: (_) => _applyStage('kaoyan'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                ...items.map((raw) {
-                  final item = raw.cast<String, dynamic>();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Card(
-                      child: ListTile(
-                        title: Text(item['title']?.toString() ?? '-'),
-                        subtitle: Text(
-                          '${item['stage'] ?? '-'} · Level ${item['level'] ?? '-'} · ${item['topic'] ?? '-'}',
-                        ),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.push('/articles/${item['id']}'),
-                      ),
-                    ),
-                  );
-                }),
+                DropdownButtonFormField<String>(
+                  initialValue: _sort,
+                  decoration: const InputDecoration(labelText: '排序方式', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'recommended', child: Text('推荐排序')),
+                    DropdownMenuItem(value: 'latest', child: Text('最新发布')),
+                    DropdownMenuItem(value: 'hot', child: Text('阅读友好')),
+                  ],
+                  onChanged: _applySort,
+                ),
+                const SizedBox(height: 16),
                 if (items.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 24),
-                    child: Center(child: Text('暂无符合筛选条件的文章')),
-                  ),
-                if (items.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Row(
-                        children: [
-                          OutlinedButton(
-                            onPressed: currentPage > 1
-                                ? () {
-                                    _page = currentPage - 1;
-                                    _reload();
-                                  }
-                                : null,
-                            child: const Text('上一页'),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              '第 $currentPage 页 · 每页 $_size 条 · 共 $total 条',
-                              textAlign: TextAlign.center,
+                  const Card(
+                    child: ListTile(
+                      title: Text('没有匹配文章'),
+                      subtitle: Text('可以换一个分级或排序方式试试。'),
+                    ),
+                  )
+                else
+                  ...items.map((item) {
+                    final articleId = (item['id'] as num?)?.toInt() ?? 0;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Card(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => context.push('/articles/$articleId'),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(item['title']?.toString() ?? '-', style: Theme.of(context).textTheme.titleMedium),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text('${item['stage']} · L${item['level']}'),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text('主题：${item['topic']} · 预计 ${item['reading_minutes']} 分钟'),
+                                const SizedBox(height: 8),
+                                Text(
+                                  item['summary']?.toString() ?? '',
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          OutlinedButton(
-                            onPressed: hasNext
-                                ? () {
-                                    _page = currentPage + 1;
-                                    _reload();
-                                  }
-                                : null,
-                            child: const Text('下一页'),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                ],
+                    );
+                  }),
               ],
             );
           },
         ),
       ),
       bottomNavigationBar: AppBottomNav(location: location),
-    );
-  }
-
-  Widget _buildStageChip(String value, String label) {
-    final selected = _stage == value;
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) {
-        _stage = value;
-        _reload(resetPage: true);
-      },
     );
   }
 }

@@ -2,7 +2,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/state/app_preferences_controller.dart';
 import '../../core/state/session_controller.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -50,17 +49,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         return '考研英语';
       default:
         return '未设置';
-    }
-  }
-
-  String _readingFontLabel(String value) {
-    switch (value) {
-      case 'small':
-        return '小';
-      case 'large':
-        return '大';
-      default:
-        return '中';
     }
   }
 
@@ -139,7 +127,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         await api.post('/auth/logout', body: {'refresh_token': refreshToken});
       }
     } catch (_) {
-      // Even if the remote logout fails, local session should still be cleared.
+      // Ignore remote logout failures and always clear the local session.
     } finally {
       await ref.read(sessionProvider.notifier).clear();
     }
@@ -156,9 +144,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final isHardDelete = mode == 'hard';
     final confirmed = await _confirm(
       title: isHardDelete ? '硬删除账号' : '软删除账号',
-      content: isHardDelete
-          ? '硬删除会立即清除账号与学习数据，且无法恢复。'
-          : '软删除后账号将不可登录，并进入保留期。',
+      content: isHardDelete ? '硬删除会立即清除账号与学习数据，且无法恢复。' : '软删除后账号将不可登录，并进入保留期。',
       confirmText: isHardDelete ? '确认硬删除' : '确认软删除',
       destructive: true,
     );
@@ -189,7 +175,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
-    final preferences = ref.watch(appPreferencesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
@@ -227,10 +212,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '账号信息',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
+                              Text('账号信息', style: Theme.of(context).textTheme.titleMedium),
                               const SizedBox(height: 12),
                               _InfoRow(label: '昵称', value: nickname),
                               _InfoRow(label: '邮箱', value: email),
@@ -239,10 +221,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                               if (deletionDueAt != null && deletionDueAt.isNotEmpty)
                                 _InfoRow(label: '删除截止', value: deletionDueAt),
                               const SizedBox(height: 8),
-                              Text(
-                                '切换备考目标',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
+                              Text('切换备考目标', style: Theme.of(context).textTheme.titleSmall),
                               const SizedBox(height: 8),
                               Wrap(
                                 spacing: 8,
@@ -270,83 +249,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '阅读与朗读偏好',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '阅读字号',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  ChoiceChip(
-                                    label: const Text('小'),
-                                    selected: preferences.readingFontSize == 'small',
-                                    onSelected: (_) => ref.read(appPreferencesProvider.notifier).setReadingFontSize('small'),
-                                  ),
-                                  ChoiceChip(
-                                    label: const Text('中'),
-                                    selected: preferences.readingFontSize == 'medium',
-                                    onSelected: (_) => ref.read(appPreferencesProvider.notifier).setReadingFontSize('medium'),
-                                  ),
-                                  ChoiceChip(
-                                    label: const Text('大'),
-                                    selected: preferences.readingFontSize == 'large',
-                                    onSelected: (_) => ref.read(appPreferencesProvider.notifier).setReadingFontSize('large'),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '当前字号：${_readingFontLabel(preferences.readingFontSize)}，会立刻应用到阅读详情正文。',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text('点词后自动发音'),
-                                subtitle: const Text('打开单词释义卡时自动播放发音，关闭后需手动点击发音按钮。'),
-                                value: preferences.autoPlayWordAudio,
-                                onChanged: (value) =>
-                                    ref.read(appPreferencesProvider.notifier).setAutoPlayWordAudio(value),
-                              ),
-                            ],
-                          ),
+                      const Card(
+                        child: ListTile(
+                          leading: Icon(Icons.info_outline),
+                          title: Text('当前版本能力'),
+                          subtitle: Text('已恢复英语文章阅读、点词查词、文章导入与基础内容运营链路。'),
                         ),
                       ),
                       const SizedBox(height: 12),
                       Card(
-                        child: Column(
-                          children: [
-                            ListTile(
-                              leading: const Icon(Icons.favorite_border),
-                              title: const Text('收藏文章'),
-                              subtitle: const Text('查看已收藏的阅读内容'),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => context.push('/me/favorites'),
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              leading: const Icon(Icons.history),
-                              title: const Text('学习记录'),
-                              subtitle: const Text('查看按日期聚合的学习轨迹'),
-                              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                              onTap: () => context.push('/me/learning-records'),
-                            ),
-                          ],
+                        child: ListTile(
+                          leading: const Icon(Icons.newspaper_outlined),
+                          title: const Text('内容运营'),
+                          subtitle: const Text('搜索外部英文文章，导入草稿并发布到阅读库'),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => context.push('/admin/content'),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -356,10 +273,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(
-                                '会话与数据',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
+                              Text('会话与数据', style: Theme.of(context).textTheme.titleMedium),
                               const SizedBox(height: 12),
                               FilledButton.tonal(
                                 onPressed: _submitting ? null : _logout,
@@ -377,13 +291,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   foregroundColor: Theme.of(context).colorScheme.error,
                                 ),
                                 child: const Text('硬删除账号'),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Windows V1 先提供基础账号与数据管理，后续可继续扩展更多个性化偏好。',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
                               ),
                             ],
                           ),
@@ -413,27 +320,15 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ),
+          SizedBox(width: 84, child: Text(label, style: const TextStyle(color: Colors.black54))),
+          Expanded(child: Text(value)),
         ],
       ),
     );
   }
 }
+

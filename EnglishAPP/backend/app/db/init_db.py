@@ -1,4 +1,4 @@
-﻿from sqlalchemy import select
+﻿from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.constants import DEMO_USER_ID
@@ -13,13 +13,18 @@ from app.db.article_content_sync import (
 )
 from app.db.models import (
     Article,
+    ArticleAudioTask,
+    ArticleContent,
     ArticleParagraph,
+    ArticleSource,
     Quiz,
     QuizOption,
     QuizQuestion,
     SentenceAnalysis,
     User,
     UserArticleFavorite,
+    UserQuizAnswer,
+    UserQuizAttempt,
     UserReadingProgress,
     UserVocabEntry,
     Word,
@@ -81,6 +86,17 @@ DEMO_WORD_SPECS = [
     {'lemma': 'consolidate', 'phonetic': 'kənˈsɑːlɪdeɪt', 'pos': 'vt.', 'meaning_cn': '巩固'},
     {'lemma': 'equity', 'phonetic': 'ˈekwəti', 'pos': 'n.', 'meaning_cn': '公平'},
 ]
+
+MANUAL_TEST_ARTICLE_TITLE_PREFIXES = (
+    '[tts-fail] Audio Failure Workflow Article',
+    'Admin Published Article',
+    'Admin Content Pipeline Article',
+    'Audio Ready Workflow Article',
+    'Snapshot Source Article',
+    'AI Research Update ',
+    'Imported RSS Article ',
+    'Climate Policy Brief ',
+)
 
 
 def init_db() -> None:
@@ -183,6 +199,43 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
     return article_by_title
 
 
+
+def _purge_manual_test_articles(db: Session) -> None:
+    article_rows = db.execute(select(Article.id, Article.title)).all()
+    article_ids = [
+        article_id
+        for article_id, title in article_rows
+        if any(title.startswith(prefix) for prefix in MANUAL_TEST_ARTICLE_TITLE_PREFIXES)
+    ]
+    if not article_ids:
+        return
+
+    quiz_ids = db.scalars(select(Quiz.id).where(Quiz.article_id.in_(article_ids))).all()
+    question_ids = db.scalars(select(QuizQuestion.id).where(QuizQuestion.quiz_id.in_(quiz_ids))).all() if quiz_ids else []
+    attempt_ids = db.scalars(select(UserQuizAttempt.id).where(UserQuizAttempt.article_id.in_(article_ids))).all()
+
+    if question_ids:
+        db.execute(delete(QuizOption).where(QuizOption.question_id.in_(question_ids)))
+    if attempt_ids:
+        db.execute(delete(UserQuizAnswer).where(UserQuizAnswer.attempt_id.in_(attempt_ids)))
+
+    db.execute(delete(UserArticleFavorite).where(UserArticleFavorite.article_id.in_(article_ids)))
+    db.execute(delete(UserReadingProgress).where(UserReadingProgress.article_id.in_(article_ids)))
+    db.execute(delete(UserVocabEntry).where(UserVocabEntry.source_article_id.in_(article_ids)))
+    db.execute(delete(SentenceAnalysis).where(SentenceAnalysis.article_id.in_(article_ids)))
+    db.execute(delete(ArticleParagraph).where(ArticleParagraph.article_id.in_(article_ids)))
+    db.execute(delete(ArticleContent).where(ArticleContent.article_id.in_(article_ids)))
+    db.execute(delete(ArticleAudioTask).where(ArticleAudioTask.article_id.in_(article_ids)))
+    db.execute(delete(ArticleSource).where(ArticleSource.article_id.in_(article_ids)))
+
+    if question_ids:
+        db.execute(delete(QuizQuestion).where(QuizQuestion.id.in_(question_ids)))
+    if quiz_ids:
+        db.execute(delete(Quiz).where(Quiz.id.in_(quiz_ids)))
+    if attempt_ids:
+        db.execute(delete(UserQuizAttempt).where(UserQuizAttempt.id.in_(attempt_ids)))
+
+    db.execute(delete(Article).where(Article.id.in_(article_ids)))
 
 def _upsert_demo_words(db: Session) -> dict[str, Word]:
     lemmas = [spec['lemma'] for spec in DEMO_WORD_SPECS]
@@ -430,6 +483,7 @@ def _seed_quizzes(db: Session) -> None:
 
 
 def seed_db(db: Session) -> None:
+    _purge_manual_test_articles(db)
     _ensure_demo_user(db)
     article_by_title = _upsert_demo_articles(db)
     word_by_lemma = _upsert_demo_words(db)
@@ -437,3 +491,4 @@ def seed_db(db: Session) -> None:
     db.commit()
     _seed_sentence_analyses(db)
     _seed_quizzes(db)
+

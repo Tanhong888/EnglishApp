@@ -1,18 +1,48 @@
-﻿from uuid import uuid4
+﻿from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
+import app.db.init_db as init_db_module
+import app.db.session as db_session
+import app.main as main_module
+import app.tasks.audio_tasks as audio_tasks_module
 from app.db.models import Article, ArticleContent, ArticleSource
-from app.db.session import SessionLocal
 from app.main import app
 
 
 @pytest.fixture
-def client() -> TestClient:
-    with TestClient(app) as test_client:
-        yield test_client
+def client(tmp_path: Path) -> TestClient:
+    test_db_path = tmp_path / 'englishapp-test.db'
+    test_url = f"sqlite:///{test_db_path.as_posix()}"
+    test_engine = create_engine(test_url, echo=False, future=True, connect_args={'check_same_thread': False})
+    test_session_local = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    original_engine = db_session.engine
+    original_session_local = db_session.SessionLocal
+    original_init_engine = init_db_module.engine
+    original_main_session_local = main_module.SessionLocal
+    original_audio_session_local = audio_tasks_module.SessionLocal
+
+    db_session.engine = test_engine
+    db_session.SessionLocal = test_session_local
+    init_db_module.engine = test_engine
+    main_module.SessionLocal = test_session_local
+    audio_tasks_module.SessionLocal = test_session_local
+
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        db_session.engine = original_engine
+        db_session.SessionLocal = original_session_local
+        init_db_module.engine = original_init_engine
+        main_module.SessionLocal = original_main_session_local
+        audio_tasks_module.SessionLocal = original_audio_session_local
+        test_engine.dispose()
 
 
 def make_headers(access_token: str) -> dict:
@@ -918,7 +948,7 @@ def test_web_article_import_creates_draft_and_is_idempotent(client: TestClient) 
     assert second_data['imported'] is False
     assert second_data['idempotent'] is True
 
-    with SessionLocal() as db:
+    with db_session.SessionLocal() as db:
         article = db.get(Article, article_id)
         assert article is not None
         assert article.status == 'draft'
@@ -1279,7 +1309,7 @@ def test_admin_article_snapshots_and_sources_are_persisted(client: TestClient) -
     )
     assert update_response.status_code == 200
 
-    with SessionLocal() as db:
+    with db_session.SessionLocal() as db:
         article = db.get(Article, article_id)
         assert article is not None
         assert article.slug is not None

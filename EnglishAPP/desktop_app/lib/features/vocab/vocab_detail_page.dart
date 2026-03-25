@@ -1,6 +1,5 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
 
@@ -62,6 +61,7 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
       );
       if (!mounted) return;
       await _refresh();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(mastered ? '已标记该来源为掌握' : '已取消该来源掌握')),
       );
@@ -139,29 +139,22 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                lemma,
-                                style: Theme.of(context).textTheme.headlineSmall,
-                              ),
+                              Text(lemma, style: Theme.of(context).textTheme.headlineSmall),
                               const SizedBox(height: 8),
                               Wrap(
                                 spacing: 8,
                                 runSpacing: 8,
                                 children: [
-                                  if (phonetic != null && phonetic.isNotEmpty)
-                                    _MetaChip(label: '/$phonetic/'),
+                                  if (phonetic != null && phonetic.isNotEmpty) _MetaChip(label: '/$phonetic/'),
                                   if (pos != null && pos.isNotEmpty) _MetaChip(label: pos),
                                   _MetaChip(label: mastered ? '全部来源已掌握' : '仍有待复习来源'),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              Text(
-                                meaning,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
+                              Text(meaning, style: Theme.of(context).textTheme.titleMedium),
                               const SizedBox(height: 8),
                               Text(
-                                '共来自 $sourceCount 篇文章',
+                                '共关联 $sourceCount 条来源记录',
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 ),
@@ -171,16 +164,15 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        '来源明细',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+                      Text('来源明细', style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       ...sources.map((rawSource) {
                         final source = rawSource.cast<String, dynamic>();
                         final sourceArticleId = (source['source_article_id'] as num?)?.toInt() ?? 0;
                         final sourceMastered = source['mastered'] as bool? ?? false;
                         final updating = _updatingSourceIds.contains(sourceArticleId);
+                        final sourceTitle = source['source_article_title']?.toString();
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Card(
@@ -194,7 +186,9 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          source['source_article_title']?.toString() ?? '未命名文章',
+                                          (sourceTitle == null || sourceTitle.isEmpty)
+                                              ? '来源记录 #$sourceArticleId'
+                                              : sourceTitle,
                                           style: Theme.of(context).textTheme.titleSmall,
                                         ),
                                       ),
@@ -203,7 +197,7 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                         decoration: BoxDecoration(
                                           color: sourceMastered
-                                              ? Colors.green.withOpacity(0.12)
+                                              ? Colors.green.withValues(alpha: 0.12)
                                               : Theme.of(context).colorScheme.surfaceContainerHighest,
                                           borderRadius: BorderRadius.circular(999),
                                         ),
@@ -212,33 +206,21 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  Text('文章 ID：$sourceArticleId'),
+                                  Text('来源标识：$sourceArticleId'),
                                   const SizedBox(height: 4),
                                   Text('加入时间：${_formatTime(source['created_at']?.toString())}'),
                                   const SizedBox(height: 4),
                                   Text('最近更新：${_formatTime(source['updated_at']?.toString())}'),
                                   const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      OutlinedButton(
-                                        onPressed: () => context.push('/articles/$sourceArticleId'),
-                                        child: const Text('打开文章'),
-                                      ),
-                                      OutlinedButton(
-                                        onPressed: updating
-                                            ? null
-                                            : () => _setSourceMastered(
-                                                  wordId: wordId,
-                                                  sourceArticleId: sourceArticleId,
-                                                  mastered: !sourceMastered,
-                                                ),
-                                        child: Text(
-                                          updating ? '更新中...' : (sourceMastered ? '取消掌握' : '标记掌握'),
-                                        ),
-                                      ),
-                                    ],
+                                  OutlinedButton(
+                                    onPressed: updating
+                                        ? null
+                                        : () => _setSourceMastered(
+                                              wordId: wordId,
+                                              sourceArticleId: sourceArticleId,
+                                              mastered: !sourceMastered,
+                                            ),
+                                    child: Text(updating ? '更新中...' : (sourceMastered ? '取消掌握' : '标记掌握')),
                                   ),
                                 ],
                               ),
@@ -248,21 +230,14 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                       }),
                       if (sources.isEmpty)
                         const Card(
-                          child: ListTile(
-                            title: Text('暂无来源明细'),
-                          ),
+                          child: ListTile(title: Text('暂无来源明细')),
                         ),
                     ],
                   );
                 },
               ),
             )
-          : Center(
-              child: FilledButton(
-                onPressed: () => context.go('/login'),
-                child: const Text('请先登录'),
-              ),
-            ),
+          : const Center(child: Text('请先登录')),
     );
   }
 }
@@ -284,3 +259,4 @@ class _MetaChip extends StatelessWidget {
     );
   }
 }
+

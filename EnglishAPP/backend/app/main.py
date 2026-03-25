@@ -12,7 +12,6 @@ from app.core.response import success
 from app.core.router import api_router
 from app.db.init_db import init_db, seed_db
 from app.db.session import SessionLocal
-from app.tasks.audio_tasks import MockTtsWorker
 
 logger = logging.getLogger('englishapp.api')
 
@@ -22,8 +21,6 @@ SECURITY_RESPONSE_HEADERS = {
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
 }
-
-_tts_worker = MockTtsWorker()
 
 
 @asynccontextmanager
@@ -45,12 +42,7 @@ async def lifespan(_: FastAPI):
         except Exception:  # pragma: no cover - optional dependency path
             logger.exception('Sentry init failed; continuing without external tracking')
 
-    _tts_worker.start()
-
-    try:
-        yield
-    finally:
-        _tts_worker.stop()
+    yield
 
 
 

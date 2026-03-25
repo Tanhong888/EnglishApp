@@ -13,57 +13,109 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  late Future<Map<String, dynamic>> _future;
+  Future<Map<String, dynamic>>? _future;
 
   @override
   void initState() {
     super.initState();
-    _future = _loadData();
+    _future = _loadHome();
   }
 
-  Future<Map<String, dynamic>> _loadData() async {
-    final publicApi = ref.read(apiClientProvider);
-    final authApi = ref.read(authApiProvider);
+  Future<Map<String, dynamic>> _loadHome() async {
+    final api = ref.read(authApiProvider);
     final session = ref.read(sessionProvider);
-
-    final recommendations = await publicApi.get('/home/recommendations');
-
+    final recommendations = await api.get('/home/recommendations');
     var recentItems = <Map<String, dynamic>>[];
+
     if (session.isAuthenticated) {
       try {
-        final recentResponse = await authApi.get('/reading/recent', requiresAuth: true);
-        final recentList = (recentResponse['data'] as List?)?.cast<Map>() ?? const <Map>[];
-        recentItems = recentList.map((raw) => raw.cast<String, dynamic>()).toList();
+        final recent = await api.get('/reading/recent', requiresAuth: true);
+        final rawRecent = (recent['data'] as List?)?.cast<Map>() ?? const <Map>[];
+        recentItems = rawRecent.map((item) => item.cast<String, dynamic>()).toList();
       } catch (_) {
         recentItems = <Map<String, dynamic>>[];
       }
     }
 
     return {
-      'recommendations': recommendations,
-      'recent_items': recentItems,
+      'recommendations': (recommendations['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{},
+      'recent': recentItems,
     };
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = _loadData();
+      _future = _loadHome();
     });
     await _future;
   }
 
-  String _formatTime(String? raw) {
-    if (raw == null || raw.isEmpty) return '-';
-    final dt = DateTime.tryParse(raw)?.toLocal();
-    if (dt == null) return raw;
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    return '${dt.month}/${dt.day} $hh:$mm';
+  Widget _buildArticleCard(BuildContext context, Map<String, dynamic> item) {
+    final articleId = (item['id'] as num?)?.toInt() ?? (item['article_id'] as num?)?.toInt() ?? 0;
+    final title = item['title']?.toString() ?? 'Untitled';
+    final stage = item['stage']?.toString() ?? '-';
+    final topic = item['topic']?.toString() ?? '-';
+    final minutes = item['reading_minutes']?.toString() ?? '-';
+    final summary = item['summary']?.toString();
+    final progress = (item['progress_percent'] as num?)?.toDouble();
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: articleId <= 0 ? null : () => context.push('/articles/$articleId'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text('$stage · ${minutes}min'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text('主题：$topic'),
+              if (summary != null && summary.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  summary,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+              if (progress != null) ...[
+                const SizedBox(height: 12),
+                LinearProgressIndicator(value: (progress / 100).clamp(0, 1)),
+                const SizedBox(height: 6),
+                Text('继续阅读进度 ${progress.toStringAsFixed(0)}%'),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
+    final session = ref.watch(sessionProvider);
+    final nickname = session.user?['nickname']?.toString() ?? '学习者';
 
     return Scaffold(
       appBar: AppBar(title: const Text('首页')),
@@ -77,107 +129,95 @@ class _HomePageState extends ConsumerState<HomePage> {
             }
             if (snapshot.hasError) {
               return ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  const SizedBox(height: 160),
+                  const SizedBox(height: 140),
                   Center(child: Text('加载失败：${snapshot.error}')),
-                  const SizedBox(height: 12),
-                  Center(
-                    child: OutlinedButton(onPressed: _refresh, child: const Text('重试')),
-                  ),
                 ],
               );
             }
 
-            final wrapper = snapshot.data ?? const <String, dynamic>{};
-            final recommendationResponse =
-                (wrapper['recommendations'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-            final recommendationData =
-                (recommendationResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-            final today = (recommendationData['today'] as List?)?.cast<Map>() ?? const <Map>[];
-            final quickEntries = (recommendationData['quick_entries'] as List?)?.cast<String>() ?? const <String>[];
-            final recentItems = (wrapper['recent_items'] as List?)?.cast<Map<String, dynamic>>() ??
-                const <Map<String, dynamic>>[];
+            final data = snapshot.data ?? const <String, dynamic>{};
+            final rec = (data['recommendations'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+            final today = (rec['today'] as List?)?.cast<Map>() ?? const <Map>[];
+            final recent = (data['recent'] as List?)?.cast<Map>() ?? const <Map>[];
 
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text('今日推荐', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                ...today.map((raw) {
-                  final item = raw.cast<String, dynamic>();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Card(
-                      child: ListTile(
-                        title: Text(item['title']?.toString() ?? '-'),
-                        subtitle: Text(
-                          '${item['stage'] ?? '-'} · Level ${item['level'] ?? '-'} · ${item['reading_minutes'] ?? '-'} 分钟',
-                        ),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.push('/articles/${item['id']}'),
-                      ),
-                    ),
-                  );
-                }),
-                const SizedBox(height: 16),
                 Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.language)),
-                    title: const Text('在线英文文章搜索'),
-                    subtitle: const Text('自动聚合公开英文新闻源，可按关键词搜索最新阅读素材'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                    onTap: () => context.push('/web-articles'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('你好，$nickname', style: Theme.of(context).textTheme.headlineSmall),
+                        const SizedBox(height: 10),
+                        const Text('这里是英语阅读主场景。先选文章开始阅读，进入详情后可以直接点击任意英文单词查释义、音标和词性。'),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            FilledButton(
+                              onPressed: () => context.push('/articles'),
+                              child: const Text('浏览文章库'),
+                            ),
+                            OutlinedButton(
+                              onPressed: () => context.push('/vocab'),
+                              child: const Text('打开生词本'),
+                            ),
+                            if (!session.isAuthenticated)
+                              OutlinedButton(
+                                onPressed: () => context.go('/login'),
+                                child: const Text('登录同步进度'),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text('最近阅读', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                if (recentItems.isEmpty)
+                Row(
+                  children: [
+                    Expanded(child: Text('今日推荐', style: Theme.of(context).textTheme.titleLarge)),
+                    TextButton(
+                      onPressed: () => context.push('/articles'),
+                      child: const Text('查看全部'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (today.isEmpty)
+                  const Card(child: ListTile(title: Text('暂时还没有推荐文章')))
+                else
+                  ...today.map((item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildArticleCard(context, item.cast<String, dynamic>()),
+                      )),
+                const SizedBox(height: 8),
+                Text('继续阅读', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                if (!session.isAuthenticated)
                   const Card(
                     child: ListTile(
-                      title: Text('暂无最近阅读'),
-                      subtitle: Text('登录后阅读文章，这里会自动显示'),
+                      title: Text('登录后可同步继续阅读'),
+                      subtitle: Text('系统会记录你的阅读进度、收藏文章和生词。'),
                     ),
-                  ),
-                ...recentItems.take(3).map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Card(
-                      child: ListTile(
-                        title: Text(item['title']?.toString() ?? '-'),
-                        subtitle: Text('上次阅读 ${_formatTime(item['last_read_at']?.toString())}'),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.push('/articles/${item['article_id']}'),
-                      ),
+                  )
+                else if (recent.isEmpty)
+                  const Card(
+                    child: ListTile(
+                      title: Text('还没有最近阅读记录'),
+                      subtitle: Text('去文章库挑一篇开始读吧。'),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text('快捷入口', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: quickEntries
-                      .map(
-                        (entry) => ActionChip(
-                          label: Text(entry.toUpperCase()),
-                          onPressed: () => context.go('/articles?stage=$entry'),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  child: ListTile(
-                    title: Text(ref.watch(sessionProvider).user?['nickname']?.toString() ?? '学习者'),
-                    subtitle: const Text('已连接后端实时数据'),
-                    trailing: OutlinedButton(
-                      onPressed: () => context.go('/me'),
-                      child: const Text('查看我的'),
-                    ),
-                  ),
-                ),
+                  )
+                else
+                  ...recent.map((item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildArticleCard(context, item.cast<String, dynamic>()),
+                      )),
               ],
             );
           },
