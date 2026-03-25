@@ -3,6 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -91,14 +96,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       final response = await api.patch('/users/me', requiresAuth: true, body: {'target': target});
       final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
       await ref.read(sessionProvider.notifier).updateUser({'target': data['target'] ?? target});
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _future = Future.value(data);
         _submitting = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('备考目标已更新')));
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _submitting = false;
       });
@@ -112,7 +121,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       content: '退出后会清除本地登录状态，需要重新输入账号密码。',
       confirmText: '确认退出',
     );
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setState(() {
       _submitting = true;
@@ -132,7 +143,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       await ref.read(sessionProvider.notifier).clear();
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _submitting = false;
     });
@@ -148,7 +161,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       confirmText: isHardDelete ? '确认硬删除' : '确认软删除',
       destructive: true,
     );
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setState(() {
       _submitting = true;
@@ -158,13 +173,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     try {
       await api.delete('/users/me', body: {'mode': mode}, requiresAuth: true);
       await ref.read(sessionProvider.notifier).clear();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       context.go('/login');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isHardDelete ? '账号已硬删除' : '账号已软删除')),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('账号删除失败：$e')));
       setState(() {
         _submitting = false;
@@ -185,13 +204,21 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 future: _future,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const AppPageScrollView(
+                      children: [
+                        SizedBox(height: 140),
+                        AppLoadingView(label: '正在加载账号信息...'),
+                      ],
+                    );
                   }
                   if (snapshot.hasError) {
-                    return ListView(
+                    return AppPageScrollView(
                       children: [
                         const SizedBox(height: 140),
-                        Center(child: Text('加载失败：${snapshot.error}')),
+                        AppErrorState(
+                          message: '${snapshot.error}',
+                          onRetry: _refresh,
+                        ),
                       ],
                     );
                   }
@@ -203,62 +230,91 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   final isActive = data['is_active'] as bool? ?? true;
                   final deletionDueAt = data['deletion_due_at']?.toString();
 
-                  return ListView(
-                    padding: const EdgeInsets.all(16),
+                  return AppPageScrollView(
+                    maxWidth: AppWidth.content,
                     children: [
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
+                      AppSectionCard(
+                        padding: EdgeInsets.zero,
+                        child: Container(
+                          padding: const EdgeInsets.all(AppSpace.xl),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF9FBFF), Color(0xFFFFFFFF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('账号信息', style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 12),
-                              _InfoRow(label: '昵称', value: nickname),
-                              _InfoRow(label: '邮箱', value: email),
-                              _InfoRow(label: '当前目标', value: _targetLabel(target)),
-                              _InfoRow(label: '账号状态', value: isActive ? '正常' : '已停用'),
-                              if (deletionDueAt != null && deletionDueAt.isNotEmpty)
-                                _InfoRow(label: '删除截止', value: deletionDueAt),
-                              const SizedBox(height: 8),
-                              Text('切换备考目标', style: Theme.of(context).textTheme.titleSmall),
-                              const SizedBox(height: 8),
+                              Text('账号信息', style: Theme.of(context).textTheme.headlineSmall),
+                              const SizedBox(height: AppSpace.sm),
                               Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
+                                spacing: AppSpace.xs,
+                                runSpacing: AppSpace.xs,
                                 children: [
-                                  ChoiceChip(
-                                    label: const Text('四级'),
-                                    selected: target == 'cet4',
-                                    onSelected: _submitting ? null : (_) => _updateTarget('cet4'),
+                                  AppStatusBadge(label: nickname, tone: AppStatusTone.brand),
+                                  AppStatusBadge(
+                                    label: isActive ? '账号正常' : '账号已停用',
+                                    tone: isActive ? AppStatusTone.success : AppStatusTone.warning,
                                   ),
-                                  ChoiceChip(
-                                    label: const Text('六级'),
-                                    selected: target == 'cet6',
-                                    onSelected: _submitting ? null : (_) => _updateTarget('cet6'),
-                                  ),
-                                  ChoiceChip(
-                                    label: const Text('考研'),
-                                    selected: target == 'kaoyan',
-                                    onSelected: _submitting ? null : (_) => _updateTarget('kaoyan'),
-                                  ),
+                                  AppStatusBadge(label: _targetLabel(target)),
                                 ],
                               ),
+                              const SizedBox(height: AppSpace.md),
+                              _InfoRow(label: '邮箱', value: email),
+                              if (deletionDueAt != null && deletionDueAt.isNotEmpty)
+                                _InfoRow(label: '删除截止', value: deletionDueAt),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      const Card(
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('切换备考目标', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.sm),
+                            Wrap(
+                              spacing: AppSpace.xs,
+                              runSpacing: AppSpace.xs,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('四级'),
+                                  selected: target == 'cet4',
+                                  onSelected: _submitting ? null : (_) => _updateTarget('cet4'),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('六级'),
+                                  selected: target == 'cet6',
+                                  onSelected: _submitting ? null : (_) => _updateTarget('cet6'),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('考研'),
+                                  selected: target == 'kaoyan',
+                                  onSelected: _submitting ? null : (_) => _updateTarget('kaoyan'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.lg),
+                      const AppSectionCard(
+                        color: AppColors.surfaceMuted,
                         child: ListTile(
+                          contentPadding: EdgeInsets.zero,
                           leading: Icon(Icons.info_outline),
                           title: Text('当前版本能力'),
                           subtitle: Text('已恢复英语文章阅读、点词查词、文章导入与基础内容运营链路。'),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Card(
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
                         child: ListTile(
+                          contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.newspaper_outlined),
                           title: const Text('内容运营'),
                           subtitle: const Text('搜索外部英文文章，导入草稿并发布到阅读库'),
@@ -266,34 +322,31 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           onTap: () => context.push('/admin/content'),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text('会话与数据', style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 12),
-                              FilledButton.tonal(
-                                onPressed: _submitting ? null : _logout,
-                                child: Text(_submitting ? '处理中...' : '退出登录'),
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text('会话与数据', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.md),
+                            FilledButton.tonal(
+                              onPressed: _submitting ? null : _logout,
+                              child: Text(_submitting ? '处理中...' : '退出登录'),
+                            ),
+                            const SizedBox(height: AppSpace.md),
+                            OutlinedButton(
+                              onPressed: _submitting ? null : () => _deleteAccount('soft'),
+                              child: const Text('软删除账号'),
+                            ),
+                            const SizedBox(height: AppSpace.xs),
+                            OutlinedButton(
+                              onPressed: _submitting ? null : () => _deleteAccount('hard'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Theme.of(context).colorScheme.error,
                               ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: _submitting ? null : () => _deleteAccount('soft'),
-                                child: const Text('软删除账号'),
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton(
-                                onPressed: _submitting ? null : () => _deleteAccount('hard'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Theme.of(context).colorScheme.error,
-                                ),
-                                child: const Text('硬删除账号'),
-                              ),
-                            ],
-                          ),
+                              child: const Text('硬删除账号'),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -301,11 +354,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 },
               ),
             )
-          : Center(
-              child: FilledButton(
-                onPressed: () => context.go('/login'),
-                child: const Text('请先登录'),
-              ),
+          : AppPageScrollView(
+              children: [
+                const SizedBox(height: 140),
+                AppEmptyState(
+                  title: '请先登录',
+                  subtitle: '登录后才可以查看和管理账号设置。',
+                  icon: Icons.lock_outline,
+                  actionLabel: '去登录',
+                  onAction: () => context.go('/login'),
+                ),
+              ],
             ),
     );
   }
@@ -320,15 +379,17 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: AppSpace.xs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 84, child: Text(label, style: const TextStyle(color: Colors.black54))),
+          SizedBox(
+            width: 84,
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ),
           Expanded(child: Text(value)),
         ],
       ),
     );
   }
 }
-

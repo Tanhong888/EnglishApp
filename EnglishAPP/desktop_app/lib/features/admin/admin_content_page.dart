@@ -4,6 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/state/admin_console_controller.dart';
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class AdminContentPage extends ConsumerStatefulWidget {
   const AdminContentPage({super.key});
@@ -222,207 +227,186 @@ class _AdminContentPageState extends ConsumerState<AdminContentPage> {
   }
 
   Widget _buildAdminAccessCard(SessionState session) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('运营入口', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            const Text('这里用于搜索外部英文文章、导入草稿、编辑正文与解析，并发布到阅读库。'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _adminKeyController,
-              decoration: const InputDecoration(
-                labelText: 'Admin Key',
-                border: OutlineInputBorder(),
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('运营入口', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            '用于搜索外部英文文章、导入草稿、编辑正文与解析，并发布到阅读库。',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          TextField(
+            controller: _adminKeyController,
+            decoration: const InputDecoration(labelText: 'Admin Key'),
+            onSubmitted: (_) => _loadAdminArticles(),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Wrap(
+            spacing: AppSpace.sm,
+            runSpacing: AppSpace.sm,
+            children: [
+              FilledButton(
+                onPressed: _savingAdminKey ? null : _persistAdminKey,
+                child: Text(_savingAdminKey ? '保存中...' : '保存管理密钥'),
               ),
-              onSubmitted: (_) => _loadAdminArticles(),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                FilledButton(
-                  onPressed: _savingAdminKey ? null : _persistAdminKey,
-                  child: Text(_savingAdminKey ? '保存中...' : '保存管理密钥'),
+              FilledButton.tonalIcon(
+                onPressed: _loadingArticles ? null : _loadAdminArticles,
+                icon: const Icon(Icons.refresh),
+                label: Text(_loadingArticles ? '刷新中...' : '刷新内容库'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _openEditor(),
+                icon: const Icon(Icons.add),
+                label: const Text('新建文章'),
+              ),
+              if (session.isAuthenticated)
+                OutlinedButton(
+                  onPressed: () => context.go('/home'),
+                  child: const Text('返回阅读首页'),
                 ),
-                FilledButton.tonalIcon(
-                  onPressed: _loadingArticles ? null : _loadAdminArticles,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(_loadingArticles ? '刷新中...' : '刷新内容库'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _openEditor(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('新建文章'),
-                ),
-                if (session.isAuthenticated)
-                  OutlinedButton(
-                    onPressed: () => context.go('/home'),
-                    child: const Text('返回阅读首页'),
-                  ),
-              ],
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildSearchCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('搜索外部文章', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _searchController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _searchWebArticles(),
-              decoration: InputDecoration(
-                hintText: '输入关键词，例如 memory / education / AI',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  onPressed: _searching ? null : _searchWebArticles,
-                  icon: const Icon(Icons.search),
-                ),
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('搜索外部文章', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpace.md),
+          TextField(
+            controller: _searchController,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _searchWebArticles(),
+            decoration: InputDecoration(
+              hintText: '输入关键词，例如 memory / education / AI',
+              suffixIcon: IconButton(
+                onPressed: _searching ? null : _searchWebArticles,
+                icon: const Icon(Icons.search),
               ),
             ),
-            const SizedBox(height: 12),
-            if (_searchResults.isEmpty)
-              const Text('还没有搜索结果，先试试拉一批最新外部文章。')
-            else
-              ..._searchResults.map((item) {
-                final url = item['url']?.toString() ?? '';
-                final importing = _importingUrls.contains(url);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Theme.of(context).colorScheme.surfaceContainerLow,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(item['title']?.toString() ?? '-', style: Theme.of(context).textTheme.titleSmall),
-                        const SizedBox(height: 6),
-                        Text('${item['source']} · ${item['published_at'] ?? '-'}'),
-                        const SizedBox(height: 8),
-                        Text(item['summary']?.toString() ?? ''),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          alignment: WrapAlignment.end,
-                          children: [
-                            FilledButton.tonal(
-                              onPressed: importing ? null : () => _importArticle(item),
-                              child: Text(importing ? '导入中...' : '导入为草稿'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          if (_searchResults.isEmpty)
+            const AppEmptyState(
+              title: '还没有搜索结果',
+              subtitle: '可以先尝试搜索一批最新外部文章。',
+              icon: Icons.public_outlined,
+            )
+          else
+            ..._searchResults.map((item) {
+              final url = item['url']?.toString() ?? '';
+              final importing = _importingUrls.contains(url);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                child: AppSectionCard(
+                  color: AppColors.surfaceMuted,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['title']?.toString() ?? '-', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: AppSpace.xs),
+                      Text('${item['source']} · ${item['published_at'] ?? '-'}'),
+                      const SizedBox(height: AppSpace.sm),
+                      Text(item['summary']?.toString() ?? ''),
+                      const SizedBox(height: AppSpace.md),
+                      FilledButton.tonal(
+                        onPressed: importing ? null : () => _importArticle(item),
+                        child: Text(importing ? '导入中...' : '导入为草稿'),
+                      ),
+                    ],
                   ),
-                );
-              }),
-          ],
-        ),
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
 
   Widget _buildLibraryCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('本地内容库', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (_adminArticles.isEmpty && !_loadingArticles)
-              const Text('当前还没有内容，先从上方导入一篇试试。')
-            else
-              ..._adminArticles.map((item) {
-                final articleId = (item['id'] as num?)?.toInt() ?? 0;
-                final isPublished = item['is_published'] as bool? ?? false;
-                final publishing = _publishingIds.contains(articleId);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Theme.of(context).colorScheme.surface,
-                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(item['title']?.toString() ?? '-', style: Theme.of(context).textTheme.titleSmall),
-                            ),
-                            const SizedBox(width: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(999),
-                                color: isPublished
-                                    ? Colors.green.withValues(alpha: 0.12)
-                                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-                              ),
-                              child: Text(isPublished ? '已发布' : '草稿'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text('阶段 ${item['stage']} · L${item['level']} · ${item['topic']} · ${item['paragraph_count']} 段'),
-                        if ((item['summary']?.toString() ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            item['summary']?.toString() ?? '',
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('本地内容库', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpace.md),
+          if (_adminArticles.isEmpty && !_loadingArticles)
+            const AppEmptyState(
+              title: '当前还没有内容',
+              subtitle: '先从上方导入一篇外部文章试试。',
+              icon: Icons.library_books_outlined,
+            )
+          else
+            ..._adminArticles.map((item) {
+              final articleId = (item['id'] as num?)?.toInt() ?? 0;
+              final isPublished = item['is_published'] as bool? ?? false;
+              final publishing = _publishingIds.contains(articleId);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                child: AppSectionCard(
+                  color: AppColors.surfaceMuted,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(item['title']?.toString() ?? '-', style: Theme.of(context).textTheme.titleMedium),
+                          ),
+                          const SizedBox(width: AppSpace.sm),
+                          AppStatusBadge(
+                            label: isPublished ? '已发布' : '草稿',
+                            tone: isPublished ? AppStatusTone.success : AppStatusTone.neutral,
                           ),
                         ],
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            FilledButton(
-                              onPressed: publishing ? null : () => _publishArticle(articleId, !isPublished),
-                              child: Text(publishing ? '处理中...' : (isPublished ? '转为草稿' : '发布到阅读库')),
-                            ),
-                            OutlinedButton(
-                              onPressed: () => _openEditor(articleId: articleId),
-                              child: const Text('编辑内容'),
-                            ),
-                            if (isPublished)
-                              OutlinedButton(
-                                onPressed: () => context.push('/articles/$articleId'),
-                                child: const Text('打开阅读页'),
-                              ),
-                          ],
+                      ),
+                      const SizedBox(height: AppSpace.sm),
+                      Text('阶段 ${item['stage']} · L${item['level']} · ${item['topic']} · ${item['paragraph_count']} 段'),
+                      if ((item['summary']?.toString() ?? '').isNotEmpty) ...[
+                        const SizedBox(height: AppSpace.sm),
+                        Text(
+                          item['summary']?.toString() ?? '',
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
-                    ),
+                      const SizedBox(height: AppSpace.md),
+                      Wrap(
+                        spacing: AppSpace.xs,
+                        runSpacing: AppSpace.xs,
+                        children: [
+                          FilledButton(
+                            onPressed: publishing ? null : () => _publishArticle(articleId, !isPublished),
+                            child: Text(publishing ? '处理中...' : (isPublished ? '转为草稿' : '发布到阅读库')),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => _openEditor(articleId: articleId),
+                            child: const Text('编辑内容'),
+                          ),
+                          if (isPublished)
+                            OutlinedButton(
+                              onPressed: () => context.push('/articles/$articleId'),
+                              child: const Text('打开阅读页'),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
-                );
-              }),
-          ],
-        ),
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
@@ -433,17 +417,16 @@ class _AdminContentPageState extends ConsumerState<AdminContentPage> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('内容运营')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: AppPageScrollView(
+        maxWidth: AppWidth.wide,
         children: [
           _buildAdminAccessCard(session),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.lg),
           _buildSearchCard(),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.lg),
           _buildLibraryCard(),
         ],
       ),
     );
   }
 }
-

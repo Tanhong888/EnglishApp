@@ -5,6 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/admin_console_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class AdminArticleEditorPage extends ConsumerStatefulWidget {
   const AdminArticleEditorPage({super.key, this.articleId});
@@ -320,52 +325,61 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   }
 
   Widget _buildHeaderCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return AppSectionCard(
+      padding: EdgeInsets.zero,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpace.xl),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFF4F8FF), Color(0xFFFFFFFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    _articleId == null ? '新建阅读文章' : '编辑文章 #$_articleId',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _articleId == null ? '新建阅读文章' : '编辑文章 #$_articleId',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: AppSpace.xs),
+                      Text(
+                        '正文段落用空行分隔。文章保存后，可以继续维护句子解析和阅读小测。',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: _isPublished
-                        ? Colors.green.withValues(alpha: 0.12)
-                        : Theme.of(context).colorScheme.surfaceContainerHighest,
-                  ),
-                  child: Text(_isPublished ? '已发布' : '草稿'),
+                const SizedBox(width: AppSpace.sm),
+                AppStatusBadge(
+                  label: _isPublished ? '已发布' : '草稿',
+                  tone: _isPublished ? AppStatusTone.success : AppStatusTone.neutral,
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            const Text('正文段落用空行分隔。文章保存后，可以继续维护句子解析和阅读小测。'),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpace.lg),
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: '标题',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: '标题'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             Row(
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     initialValue: _stage,
-                    decoration: const InputDecoration(
-                      labelText: '阶段标签',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: '阶段标签'),
                     items: const [
                       DropdownMenuItem(value: 'cet4', child: Text('CET4')),
                       DropdownMenuItem(value: 'cet6', child: Text('CET6')),
@@ -381,14 +395,11 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpace.sm),
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     initialValue: _level,
-                    decoration: const InputDecoration(
-                      labelText: '难度等级',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: '难度等级'),
                     items: const [1, 2, 3, 4]
                         .map((level) => DropdownMenuItem(value: level, child: Text('Level $level')))
                         .toList(),
@@ -402,28 +413,22 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpace.sm),
                 Expanded(
                   child: TextField(
                     controller: _readingMinutesController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: '阅读分钟数',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: '阅读分钟数'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             TextField(
               controller: _topicController,
-              decoration: const InputDecoration(
-                labelText: '主题 topic',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: '主题 topic'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             TextField(
               controller: _summaryController,
               minLines: 2,
@@ -431,18 +436,14 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
               decoration: const InputDecoration(
                 labelText: '摘要',
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             TextField(
               controller: _sourceUrlController,
-              decoration: const InputDecoration(
-                labelText: '来源链接',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: '来源链接'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.sm),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('保存后发布到阅读库'),
@@ -454,7 +455,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                 });
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.sm),
             TextField(
               controller: _paragraphsController,
               minLines: 8,
@@ -463,13 +464,12 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                 labelText: '正文段落',
                 hintText: '每段之间空一行',
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             Wrap(
-              spacing: 10,
-              runSpacing: 10,
+              spacing: AppSpace.xs,
+              runSpacing: AppSpace.xs,
               children: [
                 FilledButton(
                   onPressed: _savingArticle ? null : _saveArticle,
@@ -494,39 +494,41 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
 
   Widget _buildAudioCard() {
     final task = _audioTask;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('朗读音频状态', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (_articleId == null)
-              const Text('先保存文章，音频任务才会出现。')
-            else if (task == null)
-              const Text('当前没有音频任务。首次发布后会自动进入生成流程。')
-            else ...[
-              Text('状态：${task['status'] ?? '-'}'),
-              const SizedBox(height: 6),
-              Text('尝试次数：${task['attempt_count'] ?? 0} / ${task['max_attempts'] ?? 0}'),
-              if ((task['last_error']?.toString() ?? '').isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text('最近错误：${task['last_error']}'),
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('朗读音频状态', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpace.sm),
+          if (_articleId == null)
+            const Text('先保存文章，音频任务才会出现。')
+          else if (task == null)
+            const Text('当前没有音频任务。首次发布后会自动进入生成流程。')
+          else ...[
+            Wrap(
+              spacing: AppSpace.xs,
+              runSpacing: AppSpace.xs,
+              children: [
+                AppStatusBadge(label: '状态 ${task['status'] ?? '-'}', tone: AppStatusTone.brand),
+                AppStatusBadge(label: '尝试 ${task['attempt_count'] ?? 0} / ${task['max_attempts'] ?? 0}'),
               ],
-              if ((task['article_audio_url']?.toString() ?? '').isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text('音频地址：${task['article_audio_url']}'),
-              ],
-            ],
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _articleId == null || _refreshingAudio ? null : _refreshAudioTask,
-              icon: const Icon(Icons.refresh),
-              label: Text(_refreshingAudio ? '刷新中...' : '刷新音频状态'),
             ),
+            if ((task['last_error']?.toString() ?? '').isNotEmpty) ...[
+              const SizedBox(height: AppSpace.sm),
+              Text('最近错误：${task['last_error']}'),
+            ],
+            if ((task['article_audio_url']?.toString() ?? '').isNotEmpty) ...[
+              const SizedBox(height: AppSpace.sm),
+              Text('音频地址：${task['article_audio_url']}'),
+            ],
           ],
-        ),
+          const SizedBox(height: AppSpace.md),
+          OutlinedButton.icon(
+            onPressed: _articleId == null || _refreshingAudio ? null : _refreshAudioTask,
+            icon: const Icon(Icons.refresh),
+            label: Text(_refreshingAudio ? '刷新中...' : '刷新音频状态'),
+          ),
+        ],
       ),
     );
   }
@@ -539,39 +541,31 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     required bool saving,
     required VoidCallback? onSave,
   }) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(description),
-            const SizedBox(height: 8),
-            Text(
-              helper,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              minLines: 10,
-              maxLines: 18,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.tonal(
-              onPressed: onSave,
-              child: Text(saving ? '保存中...' : '保存配置'),
-            ),
-          ],
-        ),
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpace.xs),
+          Text(description),
+          const SizedBox(height: AppSpace.sm),
+          Text(
+            helper,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: AppSpace.md),
+          TextField(
+            controller: controller,
+            minLines: 10,
+            maxLines: 18,
+            decoration: const InputDecoration(alignLabelWithHint: true),
+          ),
+          const SizedBox(height: AppSpace.md),
+          FilledButton.tonal(
+            onPressed: onSave,
+            child: Text(saving ? '保存中...' : '保存配置'),
+          ),
+        ],
       ),
     );
   }
@@ -585,33 +579,39 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         title: Text(_isCreateMode ? '新建文章' : '编辑文章'),
       ),
       body: !adminState.initialized
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppPageScrollView(
+              children: [
+                SizedBox(height: 140),
+                AppLoadingView(label: '正在初始化后台环境...'),
+              ],
+            )
           : !adminState.hasAdminApiKey
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('还没有配置 Admin Key，请先返回内容运营页保存管理密钥。'),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: () => context.pop(),
-                          child: const Text('返回内容运营页'),
-                        ),
-                      ],
+              ? AppPageScrollView(
+                  children: [
+                    const SizedBox(height: 140),
+                    AppEmptyState(
+                      title: '还没有配置 Admin Key',
+                      subtitle: '请先返回内容运营页保存管理密钥，再进入文章编辑。',
+                      icon: Icons.admin_panel_settings_outlined,
+                      actionLabel: '返回内容运营页',
+                      onAction: () => context.pop(),
                     ),
-                  ),
+                  ],
                 )
               : _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
+                  ? const AppPageScrollView(
+                      children: [
+                        SizedBox(height: 140),
+                        AppLoadingView(label: '正在加载文章配置...'),
+                      ],
+                    )
+                  : AppPageScrollView(
+                      maxWidth: AppWidth.wide,
                       children: [
                         _buildHeaderCard(),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpace.lg),
                         _buildAudioCard(),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpace.lg),
                         _buildJsonCard(
                           title: '句子解析',
                           description: '这里维护阅读页里重点句的翻译和结构说明，保存会覆盖现有解析。',
@@ -620,7 +620,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                           saving: _savingAnalyses,
                           onSave: _articleId == null || _savingAnalyses ? null : _saveAnalyses,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpace.lg),
                         _buildJsonCard(
                           title: '阅读小测',
                           description: '这里配置文章阅读后的理解题，options 为字符串数组，correct_option_index 从 1 开始。',
@@ -634,4 +634,3 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     );
   }
 }
-

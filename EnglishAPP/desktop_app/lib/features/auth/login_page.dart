@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_section_card.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
@@ -48,7 +50,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             user: (data['user'] as Map).cast<String, dynamic>(),
           );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       context.go('/home');
     } on ApiException catch (e) {
       setState(() {
@@ -69,42 +73,95 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('登录')),
-      body: Center(
-        child: SizedBox(
-          width: 420,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('欢迎回来', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  const Text('Windows 端将优先对接本地 API 服务。'),
-                  const SizedBox(height: 16),
-                  TextField(controller: _emailController, decoration: const InputDecoration(labelText: '邮箱')),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(labelText: '密码'),
-                    obscureText: true,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF2F6FF), Color(0xFFF7F8FA), Color(0xFFFFFFFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpace.lg),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: AppWidth.form),
+                child: AppSectionCard(
+                  padding: const EdgeInsets.all(AppSpace.xl),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandSoft,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                        child: Text(
+                          'Windows 桌面端',
+                          style: theme.textTheme.labelMedium?.copyWith(color: AppColors.brandStrong),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.lg),
+                      Text('欢迎回来', style: theme.textTheme.headlineSmall),
+                      const SizedBox(height: AppSpace.xs),
+                      Text(
+                        '登录后即可同步阅读进度、生词本和个人学习数据。',
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: AppSpace.xl),
+                      TextField(
+                        controller: _emailController,
+                        decoration: const InputDecoration(
+                          labelText: '邮箱',
+                          prefixIcon: Icon(Icons.mail_outline),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.md),
+                      TextField(
+                        controller: _passwordController,
+                        decoration: const InputDecoration(
+                          labelText: '密码',
+                          prefixIcon: Icon(Icons.lock_outline),
+                        ),
+                        obscureText: true,
+                        onSubmitted: (_) => _submitting ? null : _login(),
+                      ),
+                      if (_errorText != null) ...[
+                        const SizedBox(height: AppSpace.md),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(AppSpace.sm),
+                          decoration: BoxDecoration(
+                            color: AppColors.errorSoft,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: Text(
+                            _errorText!,
+                            style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.error),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: AppSpace.lg),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _submitting ? null : _login,
+                          child: Text(_submitting ? '登录中...' : '登录并进入首页'),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.md),
+                      Text(
+                        '演示账号：demo@englishapp.dev / Passw0rd!',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
                   ),
-                  if (_errorText != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_errorText!, style: const TextStyle(color: Color(0xFFDC2626))),
-                  ],
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _submitting ? null : _login,
-                      child: Text(_submitting ? '登录中...' : '登录并进入首页'),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -113,4 +170,3 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 }
-

@@ -4,7 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class ArticleDetailPage extends ConsumerStatefulWidget {
   const ArticleDetailPage({super.key, required this.articleId});
@@ -57,7 +62,9 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final api = ref.read(authApiProvider);
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('登录后可收藏文章')));
       return;
     }
@@ -68,12 +75,16 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       } else {
         await api.post('/articles/${widget.articleId}/favorite', requiresAuth: true);
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _favorite = !_favorite;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('收藏失败：$e')));
     }
   }
@@ -81,7 +92,9 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   Future<void> _markProgress(int paragraphIndex) async {
     final api = ref.read(authApiProvider);
     final session = ref.read(sessionProvider);
-    if (!session.isAuthenticated) return;
+    if (!session.isAuthenticated) {
+      return;
+    }
 
     try {
       await api.post(
@@ -96,13 +109,17 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final api = ref.read(authApiProvider);
     final session = ref.read(sessionProvider);
     if (!session.isAuthenticated) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('登录后可加入生词本')));
       return;
     }
 
     final wordId = (wordData?['id'] as num?)?.toInt();
-    if (wordId == null) return;
+    if (wordId == null) {
+      return;
+    }
 
     try {
       await api.post(
@@ -110,17 +127,23 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         requiresAuth: true,
         body: {'word_id': wordId, 'source_article_id': widget.articleId},
       );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已加入生词本')));
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加入生词本失败：$e')));
     }
   }
 
   Future<void> _showWordSheet(String word) async {
     final normalized = word.trim().toLowerCase();
-    if (normalized.isEmpty) return;
+    if (normalized.isEmpty) {
+      return;
+    }
 
     Map<String, dynamic>? wordData = _wordCache[normalized];
     if (!_wordCache.containsKey(normalized)) {
@@ -136,12 +159,16 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           wordData = <String, dynamic>{'lemma': normalized, 'found': false};
           _wordCache[normalized] = wordData;
         } else {
-          if (!mounted) return;
+          if (!mounted) {
+            return;
+          }
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('查词失败：${e.message}')));
           return;
         }
       } catch (e) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('查词失败：$e')));
         return;
       } finally {
@@ -153,7 +180,9 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       }
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     final found = wordData?['found'] as bool?;
     final exists = found != false && wordData != null && wordData.isNotEmpty;
@@ -162,29 +191,41 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
       showDragHandle: true,
       builder: (context) {
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.xs, AppSpace.lg, AppSpace.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(normalized, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
+              Text(normalized, style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: AppSpace.sm),
               if (!exists)
-                const Text('暂未查到这个单词的中文释义，请换一个词再试。')
+                Text(
+                  '暂未查到这个单词的中文释义，请换一个词再试。',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                )
               else ...[
+                Wrap(
+                  spacing: AppSpace.xs,
+                  runSpacing: AppSpace.xs,
+                  children: [
+                    if ((wordData?['phonetic']?.toString() ?? '').isNotEmpty)
+                      AppStatusBadge(label: '/${wordData?['phonetic']}/'),
+                    if ((wordData?['pos']?.toString() ?? '').isNotEmpty)
+                      AppStatusBadge(label: '${wordData?['pos']}'),
+                    AppStatusBadge(label: '${wordData?['source'] ?? 'local'}', tone: AppStatusTone.brand),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.md),
                 Text('词元：${wordData?['lemma'] ?? normalized}'),
-                const SizedBox(height: 6),
-                Text('音标：${wordData?['phonetic'] ?? '-'}'),
-                const SizedBox(height: 6),
-                Text('词性：${wordData?['pos'] ?? '-'}'),
-                const SizedBox(height: 6),
+                const SizedBox(height: AppSpace.xs),
                 Text('中文释义：${wordData?['meaning_cn'] ?? '-'}'),
-                const SizedBox(height: 6),
-                Text('来源：${wordData?['source'] ?? 'local'}'),
-                const SizedBox(height: 14),
-                FilledButton(
-                  onPressed: () => _saveWord(wordData),
-                  child: const Text('加入生词本'),
+                const SizedBox(height: AppSpace.lg),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => _saveWord(wordData),
+                    child: const Text('加入生词本'),
+                  ),
                 ),
               ],
             ],
@@ -198,43 +239,49 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     final tokens = RegExp(r'[A-Za-z]+|[^A-Za-z]+').allMatches(text).map((m) => m.group(0) ?? '').toList();
     final wordRegex = RegExp(r'^[A-Za-z]+$');
 
-    return InkWell(
-      onTap: () => _markProgress(paragraphIndex),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
-        ),
-        child: Wrap(
-          children: tokens.map((token) {
-            if (!wordRegex.hasMatch(token)) {
-              return Text(token, style: const TextStyle(fontSize: 16, height: 1.8));
-            }
+    return Material(
+      color: AppColors.surfaceMuted,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        onTap: () => _markProgress(paragraphIndex),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpace.md),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Wrap(
+            children: tokens.map((token) {
+              if (!wordRegex.hasMatch(token)) {
+                return Text(token, style: const TextStyle(fontSize: 16, height: 1.8));
+              }
 
-            final normalized = token.toLowerCase();
-            final cached = _wordCache[normalized];
-            final isNotFound = cached != null && ((cached['found'] as bool?) == false);
-            final isLoading = _loadingWord == normalized;
-            final color = isLoading
-                ? Colors.orange.shade700
-                : (isNotFound ? Colors.red.shade700 : Colors.blue.shade700);
+              final normalized = token.toLowerCase();
+              final cached = _wordCache[normalized];
+              final isNotFound = cached != null && ((cached['found'] as bool?) == false);
+              final isLoading = _loadingWord == normalized;
+              final color = isLoading
+                  ? AppColors.warning
+                  : (isNotFound ? AppColors.error : AppColors.brandStrong);
 
-            return InkWell(
-              onTap: () => _showWordSheet(normalized),
-              child: Text(
-                token,
-                style: TextStyle(
-                  fontSize: 16,
-                  height: 1.8,
-                  color: color,
-                  decoration: TextDecoration.underline,
+              return InkWell(
+                onTap: () => _showWordSheet(normalized),
+                child: Text(
+                  token,
+                  style: TextStyle(
+                    fontSize: 16,
+                    height: 1.8,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationColor: color.withValues(alpha: 0.35),
+                  ),
                 ),
-              ),
-            );
-          }).toList(),
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -249,6 +296,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
         title: const Text('阅读详情'),
         actions: [
           IconButton(
+            tooltip: _favorite ? '取消收藏' : '收藏文章',
             onPressed: _toggleFavorite,
             icon: Icon(_favorite ? Icons.favorite : Icons.favorite_border),
           ),
@@ -260,49 +308,105 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
+              return const AppPageScrollView(
+                maxWidth: AppWidth.reading,
+                children: [
+                  SizedBox(height: 140),
+                  AppLoadingView(label: '正在准备文章内容...'),
+                ],
+              );
             }
             if (snapshot.hasError) {
-              return ListView(
-                padding: const EdgeInsets.all(16),
+              return AppPageScrollView(
+                maxWidth: AppWidth.reading,
                 children: [
                   const SizedBox(height: 140),
-                  Center(child: Text('加载失败：${snapshot.error}')),
+                  AppErrorState(
+                    message: '${snapshot.error}',
+                    onRetry: _refresh,
+                  ),
                 ],
               );
             }
 
             final data = snapshot.data ?? const <String, dynamic>{};
             final paragraphs = (data['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
-            return ListView(
-              padding: const EdgeInsets.all(16),
+            return AppPageScrollView(
+              maxWidth: AppWidth.reading,
               children: [
-                Text(data['title']?.toString() ?? '-', style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 10),
-                Text('${data['stage']} · L${data['level']} · ${data['topic']} · ${data['reading_minutes']} 分钟'),
-                const SizedBox(height: 12),
-                Text(
-                  data['summary']?.toString() ?? '进入正文后，点击任意英文单词即可查释义；点击段落可自动记录阅读进度。',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 20),
-                Text('正文', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 10),
-                ...paragraphs.map((raw) {
-                  final item = raw.cast<String, dynamic>();
-                  final index = (item['index'] as num?)?.toInt() ?? 1;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                AppSectionCard(
+                  padding: EdgeInsets.zero,
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpace.xl),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFF9FBFF), Color(0xFFFFFFFF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('段落 $index', style: Theme.of(context).textTheme.labelLarge),
-                        const SizedBox(height: 6),
-                        _buildInteractiveParagraph(item['text']?.toString() ?? '', index),
+                        Wrap(
+                          spacing: AppSpace.xs,
+                          runSpacing: AppSpace.xs,
+                          children: [
+                            AppStatusBadge(label: '${data['stage'] ?? '-'}', tone: AppStatusTone.brand),
+                            AppStatusBadge(label: 'L${data['level'] ?? '-'}'),
+                            AppStatusBadge(label: '${data['reading_minutes'] ?? '-'} 分钟'),
+                            AppStatusBadge(label: '${data['topic'] ?? '-'}'),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpace.md),
+                        Text(data['title']?.toString() ?? '-', style: Theme.of(context).textTheme.headlineSmall),
+                        const SizedBox(height: AppSpace.sm),
+                        Text(
+                          data['summary']?.toString() ?? '进入正文后，点击任意英文单词即可查释义；点击段落可自动记录阅读进度。',
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
                       ],
                     ),
-                  );
-                }),
+                  ),
+                ),
+                const SizedBox(height: AppSpace.lg),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('正文', style: Theme.of(context).textTheme.titleLarge),
+                    ),
+                    Text(
+                      '点击单词查词，点击段落记进度',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.sm),
+                if (paragraphs.isEmpty)
+                  const AppEmptyState(
+                    title: '这篇文章还没有正文内容',
+                    subtitle: '稍后刷新或返回文章库选择其他文章。',
+                    icon: Icons.article_outlined,
+                  )
+                else
+                  ...paragraphs.map((raw) {
+                    final item = raw.cast<String, dynamic>();
+                    final index = (item['index'] as num?)?.toInt() ?? 1;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.md),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpace.xs),
+                            child: Text('段落 $index', style: Theme.of(context).textTheme.labelLarge),
+                          ),
+                          _buildInteractiveParagraph(item['text']?.toString() ?? '', index),
+                        ],
+                      ),
+                    );
+                  }),
               ],
             );
           },

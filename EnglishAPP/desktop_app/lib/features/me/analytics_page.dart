@@ -1,8 +1,13 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class MeAnalyticsPage extends ConsumerStatefulWidget {
   const MeAnalyticsPage({super.key});
@@ -74,7 +79,7 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
 
   Widget _metricLine(String label, dynamic value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: AppSpace.xs),
       child: Row(
         children: [
           Expanded(child: Text(label)),
@@ -97,13 +102,21 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
                 future: _future,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const AppPageScrollView(
+                      children: [
+                        SizedBox(height: 140),
+                        AppLoadingView(label: '正在加载行为指标...'),
+                      ],
+                    );
                   }
                   if (snapshot.hasError) {
-                    return ListView(
+                    return AppPageScrollView(
                       children: [
                         const SizedBox(height: 140),
-                        Center(child: Text('加载失败：${snapshot.error}')),
+                        AppErrorState(
+                          message: '${snapshot.error}',
+                          onRetry: _refresh,
+                        ),
                       ],
                     );
                   }
@@ -119,96 +132,154 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
                   final topWords =
                       (data['top_words'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
 
-                  return ListView(
-                    padding: const EdgeInsets.all(16),
+                  return AppPageScrollView(
+                    maxWidth: AppWidth.content,
                     children: [
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('查看近期学习行为变化', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.md),
+                            Wrap(
+                              spacing: AppSpace.xs,
+                              runSpacing: AppSpace.xs,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('近7天'),
+                                  selected: _days == 7,
+                                  onSelected: (_) => _changeDays(7),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('近30天'),
+                                  selected: _days == 30,
+                                  onSelected: (_) => _changeDays(30),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.lg),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                        spacing: AppSpace.sm,
+                        runSpacing: AppSpace.sm,
                         children: [
-                          ChoiceChip(
-                            label: const Text('近7天'),
-                            selected: _days == 7,
-                            onSelected: (_) => _changeDays(7),
+                          SizedBox(
+                            width: 220,
+                            child: AppSectionCard(
+                              color: AppColors.surfaceMuted,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('统计窗口'),
+                                  const SizedBox(height: AppSpace.xs),
+                                  Text('近 $windowDays 天', style: Theme.of(context).textTheme.titleLarge),
+                                ],
+                              ),
+                            ),
                           ),
-                          ChoiceChip(
-                            label: const Text('近30天'),
-                            selected: _days == 30,
-                            onSelected: (_) => _changeDays(30),
+                          SizedBox(
+                            width: 220,
+                            child: AppSectionCard(
+                              color: AppColors.surfaceMuted,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('事件总数'),
+                                  const SizedBox(height: AppSpace.xs),
+                                  Text('$eventTotal', style: Theme.of(context).textTheme.titleLarge),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 220,
+                            child: AppSectionCard(
+                              color: AppColors.surfaceMuted,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('活跃用户'),
+                                  const SizedBox(height: AppSpace.xs),
+                                  Text('$dau', style: Theme.of(context).textTheme.titleLarge),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('统计窗口：近 $windowDays 天', style: const TextStyle(fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 8),
-                              Text('事件总数：$eventTotal'),
-                              const SizedBox(height: 6),
-                              Text('活跃用户：$dau'),
-                            ],
-                          ),
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('关键事件', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.md),
+                            _metricLine('点词', eventCounts['word_tap']),
+                            _metricLine('发音点击', eventCounts['word_pronunciation_tap']),
+                            _metricLine('收藏切换', eventCounts['favorite_toggle']),
+                            _metricLine('小测提交', eventCounts['quiz_submit']),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('关键事件', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 10),
-                              _metricLine('点词', eventCounts['word_tap']),
-                              _metricLine('发音点击', eventCounts['word_pronunciation_tap']),
-                              _metricLine('收藏切换', eventCounts['favorite_toggle']),
-                              _metricLine('小测提交', eventCounts['quiz_submit']),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('高频点击单词', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 10),
-                              if (topWords.isEmpty) const Text('暂无单词点击数据'),
-                              ...topWords.take(8).map(
-                                (item) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 6),
-                                  child: Text('${item['word'] ?? '-'} · ${item['count'] ?? 0} 次'),
-                                ),
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('高频点击单词', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.md),
+                            if (topWords.isEmpty)
+                              const AppEmptyState(
+                                title: '暂无单词点击数据',
+                                subtitle: '后续在阅读中多点词，这里会显示高频单词。',
+                                icon: Icons.touch_app_outlined,
+                              )
+                            else
+                              Wrap(
+                                spacing: AppSpace.xs,
+                                runSpacing: AppSpace.xs,
+                                children: topWords.take(8).map(
+                                  (item) {
+                                    final word = item['word']?.toString() ?? '-';
+                                    final count = item['count'] ?? 0;
+                                    return AppStatusBadge(
+                                      label: '$word · $count 次',
+                                      tone: AppStatusTone.brand,
+                                    );
+                                  },
+                                ).toList(),
                               ),
-                            ],
-                          ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('事件趋势', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 10),
-                              if (timeline.isEmpty) const Text('暂无趋势数据'),
+                      const SizedBox(height: AppSpace.lg),
+                      AppSectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('事件趋势', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: AppSpace.md),
+                            if (timeline.isEmpty)
+                              const AppEmptyState(
+                                title: '暂无趋势数据',
+                                subtitle: '当前窗口内还没有足够的趋势样本。',
+                                icon: Icons.show_chart_outlined,
+                              )
+                            else
                               ...timeline.map(
                                 (item) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 6),
-                                  child: Text('${item['date'] ?? '-'}：${item['events'] ?? 0} 次事件'),
+                                  padding: const EdgeInsets.only(bottom: AppSpace.xs),
+                                  child: Row(
+                                    children: [
+                                      Expanded(child: Text('${item['date'] ?? '-'}')),
+                                      Text('${item['events'] ?? 0} 次事件'),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ],
-                          ),
+                          ],
                         ),
                       ),
                     ],
@@ -216,13 +287,18 @@ class _MeAnalyticsPageState extends ConsumerState<MeAnalyticsPage> {
                 },
               ),
             )
-          : Center(
-              child: FilledButton(
-                onPressed: () => context.go('/login'),
-                child: const Text('请先登录'),
-              ),
+          : AppPageScrollView(
+              children: [
+                const SizedBox(height: 140),
+                AppEmptyState(
+                  title: '请先登录',
+                  subtitle: '登录后才可以查看行为指标。',
+                  icon: Icons.lock_outline,
+                  actionLabel: '去登录',
+                  onAction: () => context.go('/login'),
+                ),
+              ],
             ),
     );
   }
 }
-

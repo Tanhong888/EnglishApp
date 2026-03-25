@@ -1,7 +1,13 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_page_scroll_view.dart';
+import '../../shared/widgets/app_section_card.dart';
+import '../../shared/widgets/app_state_views.dart';
+import '../../shared/widgets/app_status_badge.dart';
 
 class VocabDetailPage extends ConsumerStatefulWidget {
   const VocabDetailPage({super.key, required this.entryId});
@@ -59,14 +65,20 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
           'source_article_id': sourceArticleId,
         },
       );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       await _refresh();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(mastered ? '已标记该来源为掌握' : '已取消该来源掌握')),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新失败：$e')));
     } finally {
       if (mounted) {
@@ -78,9 +90,13 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
   }
 
   String _formatTime(String? raw) {
-    if (raw == null || raw.isEmpty) return '-';
+    if (raw == null || raw.isEmpty) {
+      return '-';
+    }
     final dt = DateTime.tryParse(raw)?.toLocal();
-    if (dt == null) return raw;
+    if (dt == null) {
+      return raw;
+    }
     final hh = dt.hour.toString().padLeft(2, '0');
     final mm = dt.minute.toString().padLeft(2, '0');
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} $hh:$mm';
@@ -99,21 +115,20 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                 future: _future,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const AppPageScrollView(
+                      children: [
+                        SizedBox(height: 140),
+                        AppLoadingView(label: '正在加载单词详情...'),
+                      ],
+                    );
                   }
                   if (snapshot.hasError) {
-                    return ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
+                    return AppPageScrollView(
                       children: [
                         const SizedBox(height: 140),
-                        Center(child: Text('加载失败：${snapshot.error}')),
-                        const SizedBox(height: 12),
-                        Center(
-                          child: OutlinedButton(
-                            onPressed: _refresh,
-                            child: const Text('重试'),
-                          ),
+                        AppErrorState(
+                          message: '${snapshot.error}',
+                          onRetry: _refresh,
                         ),
                       ],
                     );
@@ -129,55 +144,71 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                   final mastered = data['mastered'] as bool? ?? false;
                   final sources = (data['sources'] as List?)?.cast<Map>() ?? const <Map>[];
 
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
+                  return AppPageScrollView(
+                    maxWidth: AppWidth.content,
                     children: [
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
+                      AppSectionCard(
+                        padding: EdgeInsets.zero,
+                        child: Container(
+                          padding: const EdgeInsets.all(AppSpace.xl),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF9FBFF), Color(0xFFFFFFFF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(lemma, style: Theme.of(context).textTheme.headlineSmall),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: AppSpace.sm),
                               Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
+                                spacing: AppSpace.xs,
+                                runSpacing: AppSpace.xs,
                                 children: [
-                                  if (phonetic != null && phonetic.isNotEmpty) _MetaChip(label: '/$phonetic/'),
-                                  if (pos != null && pos.isNotEmpty) _MetaChip(label: pos),
-                                  _MetaChip(label: mastered ? '全部来源已掌握' : '仍有待复习来源'),
+                                  if (phonetic != null && phonetic.isNotEmpty) AppStatusBadge(label: '/$phonetic/'),
+                                  if (pos != null && pos.isNotEmpty) AppStatusBadge(label: pos),
+                                  AppStatusBadge(
+                                    label: mastered ? '全部来源已掌握' : '仍有待复习来源',
+                                    tone: mastered ? AppStatusTone.success : AppStatusTone.warning,
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: AppSpace.md),
                               Text(meaning, style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: AppSpace.xs),
                               Text(
                                 '共关联 $sourceCount 条来源记录',
                                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Text('来源明细', style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 8),
-                      ...sources.map((rawSource) {
-                        final source = rawSource.cast<String, dynamic>();
-                        final sourceArticleId = (source['source_article_id'] as num?)?.toInt() ?? 0;
-                        final sourceMastered = source['mastered'] as bool? ?? false;
-                        final updating = _updatingSourceIds.contains(sourceArticleId);
-                        final sourceTitle = source['source_article_title']?.toString();
+                      const SizedBox(height: AppSpace.lg),
+                      Text('来源明细', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: AppSpace.sm),
+                      if (sources.isEmpty)
+                        const AppEmptyState(
+                          title: '暂无来源明细',
+                          subtitle: '后续从文章中再次遇到这个单词时，来源记录会显示在这里。',
+                          icon: Icons.link_off_outlined,
+                        )
+                      else
+                        ...sources.map((rawSource) {
+                          final source = rawSource.cast<String, dynamic>();
+                          final sourceArticleId = (source['source_article_id'] as num?)?.toInt() ?? 0;
+                          final sourceMastered = source['mastered'] as bool? ?? false;
+                          final updating = _updatingSourceIds.contains(sourceArticleId);
+                          final sourceTitle = source['source_article_title']?.toString();
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                            child: AppSectionCard(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -189,30 +220,24 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                                           (sourceTitle == null || sourceTitle.isEmpty)
                                               ? '来源记录 #$sourceArticleId'
                                               : sourceTitle,
-                                          style: Theme.of(context).textTheme.titleSmall,
+                                          style: Theme.of(context).textTheme.titleMedium,
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: sourceMastered
-                                              ? Colors.green.withValues(alpha: 0.12)
-                                              : Theme.of(context).colorScheme.surfaceContainerHighest,
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(sourceMastered ? '已掌握' : '待复习'),
+                                      const SizedBox(width: AppSpace.sm),
+                                      AppStatusBadge(
+                                        label: sourceMastered ? '已掌握' : '待复习',
+                                        tone: sourceMastered ? AppStatusTone.success : AppStatusTone.neutral,
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: AppSpace.sm),
                                   Text('来源标识：$sourceArticleId'),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: AppSpace.xs),
                                   Text('加入时间：${_formatTime(source['created_at']?.toString())}'),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: AppSpace.xs),
                                   Text('最近更新：${_formatTime(source['updated_at']?.toString())}'),
-                                  const SizedBox(height: 12),
-                                  OutlinedButton(
+                                  const SizedBox(height: AppSpace.md),
+                                  FilledButton.tonal(
                                     onPressed: updating
                                         ? null
                                         : () => _setSourceMastered(
@@ -225,38 +250,25 @@ class _VocabDetailPageState extends ConsumerState<VocabDetailPage> {
                                 ],
                               ),
                             ),
-                          ),
-                        );
-                      }),
-                      if (sources.isEmpty)
-                        const Card(
-                          child: ListTile(title: Text('暂无来源明细')),
-                        ),
+                          );
+                        }),
                     ],
                   );
                 },
               ),
             )
-          : const Center(child: Text('请先登录')),
+          : AppPageScrollView(
+              children: [
+                const SizedBox(height: 140),
+                AppEmptyState(
+                  title: '请先登录',
+                  subtitle: '登录后才能查看单词详情和来源记录。',
+                  icon: Icons.lock_outline,
+                  actionLabel: '去登录',
+                  onAction: () => context.go('/login'),
+                ),
+              ],
+            ),
     );
   }
 }
-
-class _MetaChip extends StatelessWidget {
-  const _MetaChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(label),
-    );
-  }
-}
-
