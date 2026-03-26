@@ -123,6 +123,38 @@ def test_articles_list_success(client: TestClient) -> None:
     assert 'items' in payload['data']
 
 
+def test_articles_seed_catalog_expanded(client: TestClient) -> None:
+    response = client.get('/api/v1/articles', params={'page': 1, 'size': 20, 'sort': 'recommended'})
+    assert response.status_code == 200
+    data = response.json()['data']
+    titles = {item['title'] for item in data['items']}
+
+    assert data['total'] >= 9
+    assert 'Why Public Libraries Still Matter' in titles
+    assert 'The Future of Battery Recycling' in titles
+
+
+
+def test_new_seed_article_has_detail_analysis_and_quiz(client: TestClient) -> None:
+    response = client.get('/api/v1/articles', params={'page': 1, 'size': 20, 'sort': 'recommended'})
+    assert response.status_code == 200
+    items = response.json()['data']['items']
+    target = next(item for item in items if item['title'] == 'Why Public Libraries Still Matter')
+    article_id = target['id']
+
+    detail_response = client.get(f'/api/v1/articles/{article_id}')
+    assert detail_response.status_code == 200
+    assert len(detail_response.json()['data']['paragraphs']) >= 4
+
+    analysis_response = client.get(f'/api/v1/articles/{article_id}/sentence-analyses')
+    assert analysis_response.status_code == 200
+    assert len(analysis_response.json()['data']['items']) >= 2
+
+    quiz_response = client.get(f'/api/v1/articles/{article_id}/quiz')
+    assert quiz_response.status_code == 200
+    assert len(quiz_response.json()['data']['questions']) == 3
+
+
 def test_personal_routes_require_auth(client: TestClient) -> None:
     me_response = client.get('/api/v1/me/stats')
     favorite_response = client.post('/api/v1/articles/1/favorite')
