@@ -44,7 +44,7 @@ DEMO_ARTICLE_SPECS = [
         'paragraphs': [
             'Sleep is not simply a passive state of rest. During sleep, the brain actively organizes information gathered during the day and strengthens important memories.',
             'Researchers often describe this process as memory consolidation. Facts, vocabulary, and problem-solving strategies can become easier to recall after a full night of high-quality sleep.',
-            'For students, this means that study time and sleep time work together rather than compete with each other. Staying up late may create the feeling of working harder, but it can reduce the brain\'s ability to store new knowledge efficiently.',
+            "For students, this means that study time and sleep time work together rather than compete with each other. Staying up late may create the feeling of working harder, but it can reduce the brain's ability to store new knowledge efficiently.",
             'In daily life, consistent sleep habits are just as important as long sleep duration. Going to bed at regular times, limiting screen use before sleep, and creating a calm environment can all support better learning performance.',
         ],
     },
@@ -80,11 +80,412 @@ DEMO_ARTICLE_SPECS = [
             'If AI tools are designed carefully, they may reduce gaps by giving underserved learners faster feedback and more flexible practice opportunities. If they are deployed carelessly, they may simply reproduce the same inequalities that already exist.',
         ],
     },
+    {
+        'title': 'Why Public Libraries Still Matter',
+        'stage_tag': 'cet4',
+        'level': 1,
+        'topic': 'society',
+        'reading_minutes': 6,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'Public libraries are often seen as quiet places filled with books, but their role in modern communities is much broader. Many libraries now provide internet access, study rooms, workshops, and support for job seekers.',
+            'For students, libraries offer a stable learning environment that may not always be available at home. Free access to information can reduce educational barriers for families with limited resources.',
+            'Libraries also serve older adults, migrants, and people who are learning new skills later in life. In many cities, they function as safe public spaces where residents can ask questions and connect with local services.',
+            'As more information moves online, libraries remain important guides. They help people not only find facts, but also judge whether those facts are reliable and worth trusting.',
+        ],
+    },
+    {
+        'title': 'The Hidden Cost of Fast Fashion',
+        'stage_tag': 'cet4',
+        'level': 2,
+        'topic': 'consumption',
+        'reading_minutes': 7,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'Fast fashion makes trendy clothing cheap and widely available, which is one reason it has become so popular. New styles appear quickly, and shoppers are encouraged to buy more items more often.',
+            'However, the low price on a label does not reflect the full environmental cost. Producing large amounts of clothing consumes water, energy, and raw materials, while discarded garments often end up in landfills.',
+            'There are also social concerns. In some supply chains, workers face long hours, low wages, and unsafe conditions in order to meet constant demand for new products.',
+            'Consumers cannot solve every problem alone, but small choices still matter. Buying fewer items, choosing durable materials, and wearing clothes longer can reduce waste and encourage more responsible production.',
+        ],
+    },
+    {
+        'title': 'The Psychology of Delayed Gratification',
+        'stage_tag': 'cet6',
+        'level': 2,
+        'topic': 'psychology',
+        'reading_minutes': 7,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'Delayed gratification refers to the ability to resist an immediate reward in order to gain a larger benefit later. This skill is often connected to long-term goals such as saving money, building healthy habits, or completing difficult study plans.',
+            'Psychologists note that self-control is not simply a matter of strong will. People make better decisions when they reduce temptation, set clear goals, and design routines that support patience.',
+            'For example, a student who turns off phone notifications before studying is not proving moral superiority. Instead, that student is shaping the environment so that focused behavior becomes easier to maintain.',
+            'The good news is that delayed gratification can improve with practice. Small repeated actions, such as keeping promises to oneself, may gradually strengthen confidence and discipline over time.',
+        ],
+    },
+    {
+        'title': 'Can Cities Prepare for Extreme Heat?',
+        'stage_tag': 'cet6',
+        'level': 3,
+        'topic': 'climate',
+        'reading_minutes': 8,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'Extreme heat is becoming a serious urban challenge as climate change increases the frequency of heat waves. In dense cities, concrete and asphalt absorb sunlight during the day and release heat slowly at night.',
+            'This pattern creates what experts call the urban heat island effect. Neighborhoods with fewer trees and less shade can remain dangerously hot even after sunset, which raises health risks for older adults and outdoor workers.',
+            'City governments are testing several responses, including reflective roofs, cooling centers, tree planting, and redesigned public spaces. Effective plans combine short-term emergency measures with long-term infrastructure changes.',
+            'Preparation also depends on communication. Residents need clear warnings, reliable access to water, and practical advice that reaches vulnerable groups before temperatures become life-threatening.',
+        ],
+    },
+    {
+        'title': 'How Satellites Monitor the Ocean',
+        'stage_tag': 'kaoyan',
+        'level': 3,
+        'topic': 'science',
+        'reading_minutes': 8,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'Satellites allow scientists to observe the ocean on a global scale. From space, researchers can track sea surface temperature, algae growth, storm patterns, and changes in ice coverage over time.',
+            'These measurements are valuable because the ocean changes constantly and covers a vast area that ships alone cannot monitor efficiently. Satellite data makes it easier to compare regions and identify unusual trends quickly.',
+            'However, remote sensing does not replace direct observation. Scientists still need data from ships, underwater instruments, and coastal stations to confirm what satellite images suggest.',
+            'When multiple sources are combined, researchers gain a clearer picture of marine systems. This helps governments, fishing communities, and climate scientists make better decisions based on timely evidence.',
+        ],
+    },
+    {
+        'title': 'The Future of Battery Recycling',
+        'stage_tag': 'kaoyan',
+        'level': 4,
+        'topic': 'technology',
+        'reading_minutes': 9,
+        'is_completed': False,
+        'audio_status': 'pending',
+        'article_audio_url': None,
+        'paragraphs': [
+            'As electric vehicles and portable electronics become more common, the number of used batteries is rising rapidly. This growth has increased attention to battery recycling as both an economic and environmental priority.',
+            'Many batteries contain valuable materials such as lithium, nickel, and cobalt. Recovering these resources can reduce pressure on mining and strengthen supply chains for future manufacturing.',
+            'Yet recycling is technically difficult. Batteries are designed in different forms, their chemical composition varies, and damaged cells can create safety risks during transport and processing.',
+            'Researchers and companies are exploring new methods to make recycling cheaper and more efficient. If these efforts succeed, battery recycling may become a key part of a cleaner and more resilient energy system.',
+        ],
+    },
 ]
 
+DEMO_SENTENCE_ANALYSIS_SPECS = {
+    'How Sleep Shapes Memory': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Sleep is not simply a passive state of rest.',
+            'translation': 'Sleep is not only passive rest.',
+            'structure': 'subject + linking verb + complement',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'For students, this means that study time and sleep time work together rather than compete with each other.',
+            'translation': 'For students, study and sleep should support each other instead of competing.',
+            'structure': 'fronted prepositional phrase + object clause + rather than contrast',
+        },
+    ],
+    'The Science of Urban Trees': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Urban trees improve air quality by capturing dust and reducing some pollutants near busy roads.',
+            'translation': 'Urban trees improve air quality by trapping dust and lowering some pollutants.',
+            'structure': 'subject + verb + object + by doing phrase',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'Because land in large cities is limited, planning where to place trees matters.',
+            'translation': 'Because urban land is limited, deciding where to place trees matters.',
+            'structure': 'reason clause + gerund phrase as subject',
+        },
+    ],
+    'AI and Education Equity': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Artificial intelligence is entering classrooms through tutoring tools, writing assistants, and personalized learning platforms.',
+            'translation': 'AI is entering classrooms through tutoring tools and personalized platforms.',
+            'structure': 'subject + progressive verb + through phrase',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'Education equity means more than offering the same software to everyone.',
+            'translation': 'Education equity means more than giving the same software to all learners.',
+            'structure': 'subject + verb + more than comparison',
+        },
+    ],
+    'Why Public Libraries Still Matter': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Many libraries now provide internet access, study rooms, workshops, and support for job seekers.',
+            'translation': 'Many libraries now provide internet access, study space, workshops, and job support.',
+            'structure': 'subject + verb + parallel objects',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'They help people not only find facts, but also judge whether those facts are reliable and worth trusting.',
+            'translation': 'Libraries help people both find facts and judge whether those facts are reliable.',
+            'structure': 'not only but also pattern + whether clause',
+        },
+    ],
+    'The Hidden Cost of Fast Fashion': [
+        {
+            'sentence_index': 1,
+            'sentence': 'However, the low price on a label does not reflect the full environmental cost.',
+            'translation': 'A low price tag does not show the full environmental cost.',
+            'structure': 'contrast adverb + subject + negative verb + object',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'Buying fewer items, choosing durable materials, and wearing clothes longer can reduce waste and encourage more responsible production.',
+            'translation': 'Buying less and using clothes longer can reduce waste and encourage better production.',
+            'structure': 'parallel gerund subjects + parallel verbs',
+        },
+    ],
+    'The Psychology of Delayed Gratification': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Delayed gratification refers to the ability to resist an immediate reward in order to gain a larger benefit later.',
+            'translation': 'Delayed gratification means resisting an immediate reward to gain a larger later benefit.',
+            'structure': 'subject + refer to + noun phrase + purpose phrase',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'The good news is that delayed gratification can improve with practice.',
+            'translation': 'The good news is that practice can improve delayed gratification.',
+            'structure': 'subject + linking verb + that clause',
+        },
+    ],
+    'Can Cities Prepare for Extreme Heat?': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Extreme heat is becoming a serious urban challenge as climate change increases the frequency of heat waves.',
+            'translation': 'Extreme heat is becoming a major urban challenge as climate change brings more heat waves.',
+            'structure': 'main clause + as clause',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'Effective plans combine short-term emergency measures with long-term infrastructure changes.',
+            'translation': 'Good plans combine emergency action with long-term infrastructure change.',
+            'structure': 'subject + combine A with B',
+        },
+    ],
+    'How Satellites Monitor the Ocean': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Satellites allow scientists to observe the ocean on a global scale.',
+            'translation': 'Satellites let scientists observe the ocean on a global scale.',
+            'structure': 'subject + allow + object + to do',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'When multiple sources are combined, researchers gain a clearer picture of marine systems.',
+            'translation': 'When multiple data sources are combined, researchers understand marine systems more clearly.',
+            'structure': 'time clause + main clause',
+        },
+    ],
+    'The Future of Battery Recycling': [
+        {
+            'sentence_index': 1,
+            'sentence': 'Recovering these resources can reduce pressure on mining and strengthen supply chains for future manufacturing.',
+            'translation': 'Recovering these materials can reduce mining pressure and strengthen supply chains.',
+            'structure': 'gerund phrase as subject + parallel verbs',
+        },
+        {
+            'sentence_index': 2,
+            'sentence': 'If these efforts succeed, battery recycling may become a key part of a cleaner and more resilient energy system.',
+            'translation': 'If these efforts work, battery recycling may become a key part of a cleaner energy system.',
+            'structure': 'if clause + modal verb + complement',
+        },
+    ],
+}
+
+DEMO_QUIZ_BANK = {
+    'How Sleep Shapes Memory': [
+        {
+            'stem': 'What process does sleep help strengthen according to the article?',
+            'options': ['Memory consolidation', 'Traffic control', 'Tree growth', 'Language extinction'],
+            'answer': 'Memory consolidation',
+        },
+        {
+            'stem': 'Why can staying up late be harmful to learning?',
+            'options': [
+                "It reduces the brain's ability to store knowledge",
+                'It makes books more expensive',
+                'It weakens library services',
+                'It lowers city temperatures',
+            ],
+            'answer': "It reduces the brain's ability to store knowledge",
+        },
+        {
+            'stem': 'Which habit does the article recommend before sleep?',
+            'options': ['Limiting screen use', 'Skipping dinner', 'Taking longer commutes', 'Buying new clothes'],
+            'answer': 'Limiting screen use',
+        },
+    ],
+    'The Science of Urban Trees': [
+        {
+            'stem': 'Urban trees improve air quality mainly by doing what?',
+            'options': ['Capturing dust', 'Increasing traffic', 'Selling equipment', 'Reducing libraries'],
+            'answer': 'Capturing dust',
+        },
+        {
+            'stem': 'What mental effect is linked to living near trees?',
+            'options': ['Lower stress levels', 'Higher boredom', 'Fewer memories', 'Longer work hours'],
+            'answer': 'Lower stress levels',
+        },
+        {
+            'stem': 'Successful tree projects in cities usually balance benefits with what?',
+            'options': ['Maintenance costs', 'Fashion trends', 'Movie schedules', 'Exam scores'],
+            'answer': 'Maintenance costs',
+        },
+    ],
+    'AI and Education Equity': [
+        {
+            'stem': 'The article mainly connects AI with which issue?',
+            'options': ['Education equity', 'Road safety', 'Sports marketing', 'Restaurant design'],
+            'answer': 'Education equity',
+        },
+        {
+            'stem': 'Why is equal access to AI tools difficult?',
+            'options': [
+                'Learners face different technical and economic barriers',
+                'All teachers reject technology',
+                'AI only works offline',
+                'Students dislike feedback',
+            ],
+            'answer': 'Learners face different technical and economic barriers',
+        },
+        {
+            'stem': 'What may happen if AI tools are deployed carelessly?',
+            'options': [
+                'Existing inequalities may be repeated',
+                'All exams will disappear',
+                'Libraries will close immediately',
+                'Teachers will stop teaching',
+            ],
+            'answer': 'Existing inequalities may be repeated',
+        },
+    ],
+    'Why Public Libraries Still Matter': [
+        {
+            'stem': 'Besides books, what do many libraries now provide?',
+            'options': ['Internet access', 'Private airports', 'Medical surgery', 'Factory equipment'],
+            'answer': 'Internet access',
+        },
+        {
+            'stem': 'Why are libraries valuable for students?',
+            'options': [
+                'They provide a stable learning environment',
+                'They replace every teacher',
+                'They guarantee high salaries',
+                'They shorten all exams',
+            ],
+            'answer': 'They provide a stable learning environment',
+        },
+        {
+            'stem': 'What skill do libraries help people develop in the digital age?',
+            'options': ['Judging information reliability', 'Driving faster', 'Designing satellites', 'Manufacturing batteries'],
+            'answer': 'Judging information reliability',
+        },
+    ],
+    'The Hidden Cost of Fast Fashion': [
+        {
+            'stem': 'Why has fast fashion become popular?',
+            'options': ['It offers cheap trendy clothing', 'It improves air quality', 'It reduces heat waves', 'It strengthens oceans'],
+            'answer': 'It offers cheap trendy clothing',
+        },
+        {
+            'stem': 'Which environmental problem is mentioned in the article?',
+            'options': ['Discarded garments ending up in landfills', 'More library noise', 'Less sleep quality', 'Fewer satellites'],
+            'answer': 'Discarded garments ending up in landfills',
+        },
+        {
+            'stem': 'What is one responsible consumer choice suggested by the article?',
+            'options': ['Buying fewer items', 'Replacing clothes weekly', 'Ignoring material quality', 'Shopping only at night'],
+            'answer': 'Buying fewer items',
+        },
+    ],
+    'The Psychology of Delayed Gratification': [
+        {
+            'stem': 'Delayed gratification means resisting what?',
+            'options': ['An immediate reward', 'A public library', 'A heat wave', 'A research ship'],
+            'answer': 'An immediate reward',
+        },
+        {
+            'stem': 'What can make self-control easier according to psychologists?',
+            'options': ['Reducing temptation', 'Buying more devices', 'Reading less often', 'Skipping goals'],
+            'answer': 'Reducing temptation',
+        },
+        {
+            'stem': 'What message does the article give about delayed gratification?',
+            'options': ['It can improve with practice', 'It is fixed at birth', 'It only matters for children', 'It is unrelated to habits'],
+            'answer': 'It can improve with practice',
+        },
+    ],
+    'Can Cities Prepare for Extreme Heat?': [
+        {
+            'stem': 'What makes extreme heat especially dangerous in dense cities?',
+            'options': ['The urban heat island effect', 'More bookstores', 'Slow internet', 'Battery recycling'],
+            'answer': 'The urban heat island effect',
+        },
+        {
+            'stem': 'Which group is mentioned as especially vulnerable to heat?',
+            'options': ['Older adults', 'Only pilots', 'Only tourists', 'Only programmers'],
+            'answer': 'Older adults',
+        },
+        {
+            'stem': 'What do effective city plans combine?',
+            'options': ['Emergency measures and infrastructure changes', 'Trees and airplanes', 'Libraries and satellites', 'Phones and clothing'],
+            'answer': 'Emergency measures and infrastructure changes',
+        },
+    ],
+    'How Satellites Monitor the Ocean': [
+        {
+            'stem': 'Why are satellites useful for ocean science?',
+            'options': ['They can observe the ocean on a global scale', 'They replace all ships forever', 'They increase fish prices', 'They reduce library visits'],
+            'answer': 'They can observe the ocean on a global scale',
+        },
+        {
+            'stem': 'Why are ships alone not enough for monitoring the ocean?',
+            'options': ['The ocean is too vast and changes constantly', 'Ships cannot move at night', 'Ships cannot measure temperature', 'Ships only work in cities'],
+            'answer': 'The ocean is too vast and changes constantly',
+        },
+        {
+            'stem': 'What is the main advantage of combining satellite data with direct observation?',
+            'options': ['A clearer picture of marine systems', 'Cheaper fashion production', 'Longer workweeks', 'Less internet access'],
+            'answer': 'A clearer picture of marine systems',
+        },
+    ],
+    'The Future of Battery Recycling': [
+        {
+            'stem': 'Why is battery recycling receiving more attention?',
+            'options': ['Used batteries are increasing rapidly', 'Cities are getting colder', 'Libraries are shrinking', 'Trees need more shade'],
+            'answer': 'Used batteries are increasing rapidly',
+        },
+        {
+            'stem': 'Which valuable material is mentioned in batteries?',
+            'options': ['Lithium', 'Wood', 'Sand', 'Cotton'],
+            'answer': 'Lithium',
+        },
+        {
+            'stem': 'What challenge makes battery recycling difficult?',
+            'options': ['Different battery designs and safety risks', 'Too many public parks', 'Lack of online articles', 'Too much sleep'],
+            'answer': 'Different battery designs and safety risks',
+        },
+    ],
+}
+
 DEMO_WORD_SPECS = [
-    {'lemma': 'consolidate', 'phonetic': 'kənˈsɑːlɪdeɪt', 'pos': 'vt.', 'meaning_cn': '巩固'},
-    {'lemma': 'equity', 'phonetic': 'ˈekwəti', 'pos': 'n.', 'meaning_cn': '公平'},
+    {'lemma': 'consolidate', 'phonetic': '\u006b\u0259n\u02c8s\u0251\u02d0l\u026ade\u026at', 'pos': 'vt.', 'meaning_cn': '\u5de9\u56fa'},
+    {'lemma': 'equity', 'phonetic': '\u02c8ekw\u026ati', 'pos': 'n.', 'meaning_cn': '\u516c\u5e73'},
 ]
 
 MANUAL_TEST_ARTICLE_TITLE_PREFIXES = (
@@ -324,50 +725,12 @@ def _ensure_demo_learning_data(db: Session, article_by_title: dict[str, Article]
 
 
 
-def _seed_sentence_analyses(db: Session) -> None:
-    has_sentence_analyses = db.scalar(select(SentenceAnalysis.id).limit(1))
-    if has_sentence_analyses is not None:
-        return
-
-    target_titles = [
-        'How Sleep Shapes Memory',
-        'The Science of Urban Trees',
-    ]
-    articles = db.scalars(select(Article).where(Article.title.in_(target_titles))).all()
-    article_by_title = {article.title: article for article in articles}
-
-    templates = [
-        {
-            'title': 'How Sleep Shapes Memory',
-            'sentence_index': 1,
-            'sentence': 'Sleep plays a major role in memory consolidation.',
-            'translation': '睡眠在记忆巩固中起重要作用。',
-            'structure': '主语 + 谓语 + 介词短语',
-        },
-        {
-            'title': 'How Sleep Shapes Memory',
-            'sentence_index': 2,
-            'sentence': 'Students with better sleep quality often perform better.',
-            'translation': '睡眠质量更好的学生通常表现更好。',
-            'structure': '主语 + 介词短语后置修饰 + 频率副词 + 谓语',
-        },
-        {
-            'title': 'The Science of Urban Trees',
-            'sentence_index': 1,
-            'sentence': 'Urban trees improve air quality and mental health.',
-            'translation': '城市树木能改善空气质量和心理健康。',
-            'structure': '主语 + 谓语 + 并列宾语',
-        },
-    ]
-
-    analyses: list[SentenceAnalysis] = []
-    for item in templates:
-        article = article_by_title.get(item['title'])
-        if article is None:
-            continue
-        analyses.append(
+def _replace_sentence_analyses_for_article(db: Session, article_id: int, items: list[dict]) -> None:
+    db.execute(delete(SentenceAnalysis).where(SentenceAnalysis.article_id == article_id))
+    for item in items:
+        db.add(
             SentenceAnalysis(
-                article_id=article.id,
+                article_id=article_id,
                 sentence_index=item['sentence_index'],
                 sentence=item['sentence'],
                 translation=item['translation'],
@@ -375,108 +738,68 @@ def _seed_sentence_analyses(db: Session) -> None:
             )
         )
 
-    if not analyses:
-        return
 
-    db.add_all(analyses)
+
+def _seed_sentence_analyses(db: Session) -> None:
+    titles = list(DEMO_SENTENCE_ANALYSIS_SPECS.keys())
+    articles = db.scalars(select(Article).where(Article.title.in_(titles))).all()
+    article_by_title = {article.title: article for article in articles}
+
+    for title, items in DEMO_SENTENCE_ANALYSIS_SPECS.items():
+        article = article_by_title.get(title)
+        if article is None:
+            continue
+        _replace_sentence_analyses_for_article(db, article.id, items)
+
     db.commit()
 
 
 
-def _seed_quizzes(db: Session) -> None:
-    has_quiz = db.scalar(select(Quiz.id).limit(1))
-    if has_quiz is not None:
-        return
+def _replace_quiz_for_article(db: Session, article_id: int, questions: list[dict]) -> None:
+    existing_quizzes = db.scalars(select(Quiz).where(Quiz.article_id == article_id)).all()
+    existing_quiz_ids = [quiz.id for quiz in existing_quizzes]
+    if existing_quiz_ids:
+        existing_question_ids = db.scalars(select(QuizQuestion.id).where(QuizQuestion.quiz_id.in_(existing_quiz_ids))).all()
+        if existing_question_ids:
+            db.execute(delete(QuizOption).where(QuizOption.question_id.in_(existing_question_ids)))
+            db.execute(delete(QuizQuestion).where(QuizQuestion.id.in_(existing_question_ids)))
+        db.execute(delete(Quiz).where(Quiz.id.in_(existing_quiz_ids)))
 
-    target_titles = [
-        'How Sleep Shapes Memory',
-        'The Science of Urban Trees',
-        'AI and Education Equity',
-    ]
-    articles = db.scalars(select(Article).where(Article.title.in_(target_titles))).all()
+    quiz = Quiz(article_id=article_id)
+    db.add(quiz)
+    db.flush()
+
+    for question_index, question_spec in enumerate(questions, start=1):
+        question = QuizQuestion(
+            quiz_id=quiz.id,
+            question_index=question_index,
+            stem=question_spec['stem'],
+        )
+        db.add(question)
+        db.flush()
+
+        for option_index, option_text in enumerate(question_spec['options'], start=1):
+            db.add(
+                QuizOption(
+                    question_id=question.id,
+                    option_index=option_index,
+                    content=option_text,
+                    is_correct=(option_text == question_spec['answer']),
+                )
+            )
+
+
+
+def _seed_quizzes(db: Session) -> None:
+    titles = list(DEMO_QUIZ_BANK.keys())
+    articles = db.scalars(select(Article).where(Article.title.in_(titles))).all()
     article_by_title = {article.title: article for article in articles}
 
-    quiz_bank = {
-        'How Sleep Shapes Memory': [
-            {
-                'stem': 'What does the article emphasize about sleep?',
-                'options': ['Memory consolidation', 'Faster city traffic', 'Exam registration', 'Plant genetics'],
-                'answer': 'Memory consolidation',
-            },
-            {
-                'stem': 'Which behavior is linked with better performance in the article?',
-                'options': ['Staying up late daily', 'Better sleep quality', 'Skipping breakfast', 'Longer social media use'],
-                'answer': 'Better sleep quality',
-            },
-            {
-                'stem': 'The article mainly belongs to which topic?',
-                'options': ['Health', 'Finance', 'History', 'Travel'],
-                'answer': 'Health',
-            },
-        ],
-        'The Science of Urban Trees': [
-            {
-                'stem': 'Urban trees can directly improve what?',
-                'options': ['Air quality', 'Wi-Fi speed', 'Housing price policy', 'Road tolls'],
-                'answer': 'Air quality',
-            },
-            {
-                'stem': 'Which benefit is mentioned for city residents?',
-                'options': ['Mental health support', 'Free public transport', 'Higher taxes', 'Longer workdays'],
-                'answer': 'Mental health support',
-            },
-            {
-                'stem': 'Trees in dense cities also help with:',
-                'options': ['Noise reduction', 'Exam grading', 'Cloud storage', 'Flight delays'],
-                'answer': 'Noise reduction',
-            },
-        ],
-        'AI and Education Equity': [
-            {
-                'stem': 'The article discusses AI and which social concern?',
-                'options': ['Education equity', 'Movie tickets', 'Sports ranking', 'Restaurant tips'],
-                'answer': 'Education equity',
-            },
-            {
-                'stem': 'In this context, equity most closely means:',
-                'options': ['Fair access', 'Higher difficulty', 'Faster machines', 'Lower attendance'],
-                'answer': 'Fair access',
-            },
-            {
-                'stem': 'Which group is most likely to benefit from equitable AI education tools?',
-                'options': ['Underserved learners', 'Only engineers', 'Only teachers', 'Only administrators'],
-                'answer': 'Underserved learners',
-            },
-        ],
-    }
-
-    for title, questions in quiz_bank.items():
+    for title, questions in DEMO_QUIZ_BANK.items():
         article = article_by_title.get(title)
         if article is None:
             continue
-
-        quiz = Quiz(article_id=article.id)
-        db.add(quiz)
-        db.flush()
-
-        for question_index, question_spec in enumerate(questions, start=1):
-            question = QuizQuestion(
-                quiz_id=quiz.id,
-                question_index=question_index,
-                stem=question_spec['stem'],
-            )
-            db.add(question)
-            db.flush()
-
-            for option_index, option_text in enumerate(question_spec['options'], start=1):
-                db.add(
-                    QuizOption(
-                        question_id=question.id,
-                        option_index=option_index,
-                        content=option_text,
-                        is_correct=(option_text == question_spec['answer']),
-                    )
-                )
+        _replace_quiz_for_article(db, article.id, questions)
 
     db.commit()
 
