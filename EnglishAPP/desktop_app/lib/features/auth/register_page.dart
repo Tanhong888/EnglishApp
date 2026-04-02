@@ -8,16 +8,18 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_section_card.dart';
 
-class LoginPage extends ConsumerStatefulWidget {
-  const LoginPage({super.key});
+class RegisterPage extends ConsumerStatefulWidget {
+  const RegisterPage({super.key});
 
   @override
-  ConsumerState<LoginPage> createState() => _LoginPageState();
+  ConsumerState<RegisterPage> createState() => _RegisterPageState();
 }
 
-class _LoginPageState extends ConsumerState<LoginPage> {
-  final _emailController = TextEditingController(text: 'demo@englishapp.dev');
-  final _passwordController = TextEditingController(text: 'Passw0rd!');
+class _RegisterPageState extends ConsumerState<RegisterPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _nicknameController = TextEditingController();
+  String _target = 'cet4';
   bool _submitting = false;
   String? _errorText;
 
@@ -25,10 +27,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _nicknameController.dispose();
     super.dispose();
   }
 
-  Future<void> _login() async {
+  Future<void> _register() async {
     setState(() {
       _submitting = true;
       _errorText = null;
@@ -36,14 +39,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     final api = ref.read(apiClientProvider);
     try {
-      final response = await api.post(
+      await api.post(
+        '/auth/register',
+        body: {
+          'email': _emailController.text.trim(),
+          'password': _passwordController.text,
+          'nickname': _nicknameController.text.trim(),
+          'target': _target,
+        },
+      );
+
+      final login = await api.post(
         '/auth/login',
         body: {
           'email': _emailController.text.trim(),
           'password': _passwordController.text,
         },
       );
-      final data = (response['data'] as Map).cast<String, dynamic>();
+      final data = (login['data'] as Map).cast<String, dynamic>();
 
       await ref.read(sessionProvider.notifier).setSession(
             accessToken: data['access_token'] as String,
@@ -57,11 +70,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       context.go('/home');
     } on ApiException catch (e) {
       setState(() {
-        _errorText = '登录失败（${e.statusCode}）：${e.message}';
+        _errorText = '注册失败（${e.statusCode}）：${e.message}';
       });
     } catch (_) {
       setState(() {
-        _errorText = '登录失败：请确认后端服务已启动（127.0.0.1:8000）';
+        _errorText = '注册失败：请确认后端服务已启动（127.0.0.1:8000）';
       });
     } finally {
       if (mounted) {
@@ -80,7 +93,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFF2F6FF), Color(0xFFF7F8FA), Color(0xFFFFFFFF)],
+            colors: [Color(0xFFFFF7EF), Color(0xFFFDFBF6), Color(0xFFFFFFFF)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -99,19 +112,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppColors.brandSoft,
+                          color: AppColors.warningSoft,
                           borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                         child: Text(
-                          'Windows 桌面端',
-                          style: theme.textTheme.labelMedium?.copyWith(color: AppColors.brandStrong),
+                          '创建新账号',
+                          style: theme.textTheme.labelMedium?.copyWith(color: AppColors.warning),
                         ),
                       ),
                       const SizedBox(height: AppSpace.lg),
-                      Text('欢迎回来', style: AppTheme.kaitiTextStyle(theme.textTheme.headlineSmall)),
+                      Text('开始使用', style: AppTheme.kaitiTextStyle(theme.textTheme.headlineSmall)),
                       const SizedBox(height: AppSpace.xs),
                       Text(
-                        '登录后即可同步阅读进度、生词本和个人学习数据。',
+                        '注册后会自动登录，并同步你的阅读进度、生词本和学习数据。',
                         style: theme.textTheme.bodyLarge,
                       ),
                       const SizedBox(height: AppSpace.xl),
@@ -125,12 +138,41 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       const SizedBox(height: AppSpace.md),
                       TextField(
                         controller: _passwordController,
+                        obscureText: true,
                         decoration: const InputDecoration(
                           labelText: '密码',
+                          helperText: '至少 8 位',
                           prefixIcon: Icon(Icons.lock_outline),
                         ),
-                        obscureText: true,
-                        onSubmitted: (_) => _submitting ? null : _login(),
+                      ),
+                      const SizedBox(height: AppSpace.md),
+                      TextField(
+                        controller: _nicknameController,
+                        decoration: const InputDecoration(
+                          labelText: '昵称',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.md),
+                      DropdownButtonFormField<String>(
+                        initialValue: _target,
+                        decoration: const InputDecoration(
+                          labelText: '备考目标',
+                          prefixIcon: Icon(Icons.flag_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'cet4', child: Text('四级')),
+                          DropdownMenuItem(value: 'cet6', child: Text('六级')),
+                          DropdownMenuItem(value: 'kaoyan', child: Text('考研')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+                          setState(() {
+                            _target = value;
+                          });
+                        },
                       ),
                       if (_errorText != null) ...[
                         const SizedBox(height: AppSpace.md),
@@ -151,21 +193,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed: _submitting ? null : _login,
-                          child: Text(_submitting ? '登录中...' : '登录并进入首页'),
+                          onPressed: _submitting ? null : _register,
+                          child: Text(_submitting ? '注册中...' : '注册并进入首页'),
                         ),
-                      ),
-                      const SizedBox(height: AppSpace.md),
-                      Text(
-                        '开发演示账号：demo@englishapp.dev / Passw0rd!',
-                        style: theme.textTheme.bodySmall,
                       ),
                       const SizedBox(height: AppSpace.sm),
                       SizedBox(
                         width: double.infinity,
                         child: TextButton(
-                          onPressed: _submitting ? null : () => context.go('/register'),
-                          child: const Text('没有账号？立即注册'),
+                          onPressed: _submitting ? null : () => context.go('/login'),
+                          child: const Text('已有账号，返回登录'),
                         ),
                       ),
                     ],

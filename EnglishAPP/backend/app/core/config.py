@@ -1,4 +1,6 @@
-﻿from pydantic_settings import BaseSettings, SettingsConfigDict
+import secrets
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -12,7 +14,9 @@ class Settings(BaseSettings):
     database_url: str = 'sqlite:///./englishapp.db'
     redis_url: str = 'redis://localhost:6379/0'
 
-    jwt_secret_key: str = 'change_me_to_a_32_char_minimum_secret_key_2026'
+    # Fall back to an ephemeral dev secret when JWT_SECRET_KEY is absent so the
+    # repository never ships a reusable signing key.
+    jwt_secret_key: str = secrets.token_urlsafe(48)
     jwt_algorithm: str = 'HS256'
     jwt_access_expire_minutes: int = 30
     jwt_refresh_expire_days: int = 14
@@ -21,7 +25,16 @@ class Settings(BaseSettings):
     sentry_dsn: str = ''
     sentry_traces_sample_rate: float = 0.0
     security_hsts_enabled: bool = False
-    admin_api_key: str = 'englishapp-admin-dev'
+    admin_emails: str = 'demo@englishapp.dev'
+    cors_allowed_origins: str = (
+        'http://127.0.0.1,'
+        'http://localhost,'
+        'http://127.0.0.1:3000,'
+        'http://localhost:3000,'
+        'http://127.0.0.1:5173,'
+        'http://localhost:5173'
+    )
+    seed_demo_data: bool = True
     tts_worker_enabled: bool = True
     tts_worker_poll_interval_seconds: float = 0.2
     tts_processing_delay_seconds: float = 0.3
@@ -29,11 +42,10 @@ class Settings(BaseSettings):
     tts_max_attempts: int = 3
     tts_mock_fail_keyword: str = '[tts-fail]'
     web_article_feed_urls: str = (
-        'https://feeds.bbci.co.uk/news/world/rss.xml,'
-        'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml,'
-        'https://feeds.bbci.co.uk/news/technology/rss.xml,'
-        'https://feeds.npr.org/1001/rss.xml,'
-        'https://feeds.npr.org/1019/rss.xml'
+        'https://www.nasa.gov/news-release/feed/,'
+        'https://www.nasa.gov/news/feed/,'
+        'https://science.nasa.gov/feed/earth-observatory/image-of-the-day,'
+        'https://science.nasa.gov/feed/earth-observatory/natural-events'
     )
     web_article_request_timeout_seconds: int = 8
 
@@ -41,3 +53,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _parse_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
+def admin_email_set() -> set[str]:
+    return {item.lower() for item in _parse_csv(settings.admin_emails)}
+
+
+def cors_origin_list() -> list[str]:
+    return _parse_csv(settings.cors_allowed_origins)
+
+

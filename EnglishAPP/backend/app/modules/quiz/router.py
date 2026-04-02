@@ -1,5 +1,5 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,9 +19,14 @@ _quiz_submit_rate_limiter = SlidingWindowRateLimiter(
 )
 
 
+class QuizAnswerRequest(BaseModel):
+    question_id: int
+    selected_option_index: int = Field(ge=1)
+
+
 class QuizSubmitRequest(BaseModel):
     article_id: int
-    answers: list[dict]
+    answers: list[QuizAnswerRequest]
 
 
 def _sync_quiz_submit_rate_limit_config() -> None:
@@ -86,22 +91,71 @@ def submit_quiz(payload: QuizSubmitRequest, request: Request, db: Session = Depe
     if not questions:
         raise HTTPException(status_code=404, detail='quiz not found')
 
+    submitted_answers: dict[int, QuizAnswerRequest] = {}
+    for answer in payload.answers:
+        if answer.question_id in submitted_answers:
+            raise HTTPException(status_code=422, detail='duplicate_quiz_answer')
+        submitted_answers[answer.question_id] = answer
+
+    valid_question_ids = {question.id for question in questions}
+    invalid_question_ids = [question_id for question_id in submitted_answers if question_id not in valid_question_ids]
+    if invalid_question_ids:
+        raise HTTPException(status_code=422, detail='invalid_quiz_answer')
+
     attempt = UserQuizAttempt(article_id=payload.article_id, correct_count=0, total_count=len(questions), accuracy=0.0)
     db.add(attempt)
     db.flush()
 
+    correct_count = 0
+    wrong_items: list[int] = []
+
     for question in questions:
+        options = db.scalars(
+            select(QuizOption)
+            .where(QuizOption.question_id == question.id)
+            .order_by(QuizOption.option_index.asc(), QuizOption.id.asc())
+        ).all()
+        selected_option = submitted_answers.get(question.id)
+        selected_text: str | None = None
+        is_correct = False
+
+        if selected_option is not None:
+            if selected_option.selected_option_index > len(options):
+                raise HTTPException(status_code=422, detail='invalid_quiz_answer')
+            option = options[selected_option.selected_option_index - 1]
+            selected_text = option.content
+            is_correct = option.is_correct
+
+        if is_correct:
+            correct_count += 1
+        else:
+            wrong_items.append(question.question_index)
+
         db.add(
             UserQuizAnswer(
                 attempt_id=attempt.id,
                 question_id=question.id,
-                selected_option=None,
-                is_correct=False,
+                selected_option=selected_text,
+                is_correct=is_correct,
             )
         )
 
+    accuracy = round(correct_count / len(questions), 2)
+    attempt.correct_count = correct_count
+    attempt.total_count = len(questions)
+    attempt.accuracy = accuracy
+
     db.commit()
-    return success({'attempt_id': attempt.id, 'article_id': payload.article_id, 'accuracy': 0.0})
+    return success(
+        {
+            'attempt_id': attempt.id,
+            'article_id': payload.article_id,
+            'correct_count': correct_count,
+            'total_count': len(questions),
+            'accuracy': accuracy,
+            'wrong_items': wrong_items,
+        }
+    )
 
 
 @router.get('/quiz/attempts/{attempt_id}')

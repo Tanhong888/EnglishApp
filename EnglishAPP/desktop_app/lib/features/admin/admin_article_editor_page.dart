@@ -1,10 +1,11 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/state/admin_console_controller.dart';
+import '../../core/state/session_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_page_scroll_view.dart';
 import '../../shared/widgets/app_section_card.dart';
@@ -45,6 +46,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   Map<String, dynamic>? _audioTask;
 
   bool get _isCreateMode => widget.articleId == null;
+  bool _isAdminSession(SessionState session) => session.user?['is_admin'] as bool? ?? false;
 
   @override
   void initState() {
@@ -79,11 +81,11 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     });
 
     try {
-      final api = ref.read(adminApiProvider);
-      final articleResponse = await api.get('/admin/articles/$articleId');
-      final analysesResponse = await api.get('/admin/articles/$articleId/sentence-analyses');
-      final quizResponse = await api.get('/admin/articles/$articleId/quiz');
-      final audioResponse = await api.get('/admin/articles/$articleId/audio-task');
+      final api = ref.read(authApiProvider);
+      final articleResponse = await api.get('/admin/articles/$articleId', requiresAuth: true);
+      final analysesResponse = await api.get('/admin/articles/$articleId/sentence-analyses', requiresAuth: true);
+      final quizResponse = await api.get('/admin/articles/$articleId/quiz', requiresAuth: true);
+      final audioResponse = await api.get('/admin/articles/$articleId/audio-task', requiresAuth: true);
 
       final article = (articleResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
       final analyses = (analysesResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -156,7 +158,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     });
 
     try {
-      final api = ref.read(adminApiProvider);
+      final api = ref.read(authApiProvider);
       final body = <String, dynamic>{
         'title': title,
         'stage_tag': _stage,
@@ -172,13 +174,14 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
       if (_articleId == null) {
         response = await api.post(
           '/admin/articles',
+          requiresAuth: true,
           body: {
             ...body,
             'is_published': _desiredPublished,
           },
         );
       } else {
-        response = await api.patch('/admin/articles/$_articleId', body: body);
+        response = await api.patch('/admin/articles/$_articleId', requiresAuth: true, body: body);
       }
 
       var article = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -186,6 +189,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
       if (_articleId != null && _desiredPublished != _isPublished) {
         final publishResponse = await api.post(
           '/admin/articles/$nextArticleId/publish',
+          requiresAuth: true,
           body: {'is_published': _desiredPublished},
         );
         article = (publishResponse['data'] as Map?)?.cast<String, dynamic>() ?? article;
@@ -234,8 +238,9 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     try {
       final decoded = jsonDecode(_analysesController.text) as List;
       final items = decoded.map((item) => (item as Map).cast<String, dynamic>()).toList();
-      await ref.read(adminApiProvider).put(
+      await ref.read(authApiProvider).put(
             '/admin/articles/$articleId/sentence-analyses',
+            requiresAuth: true,
             body: {'items': items},
           );
       if (!mounted) {
@@ -269,8 +274,9 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     try {
       final decoded = jsonDecode(_quizController.text) as List;
       final questions = decoded.map((item) => (item as Map).cast<String, dynamic>()).toList();
-      await ref.read(adminApiProvider).put(
+      await ref.read(authApiProvider).put(
             '/admin/articles/$articleId/quiz',
+            requiresAuth: true,
             body: {'questions': questions},
           );
       if (!mounted) {
@@ -302,7 +308,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     });
 
     try {
-      final response = await ref.read(adminApiProvider).get('/admin/articles/$articleId/audio-task');
+      final response = await ref.read(authApiProvider).get('/admin/articles/$articleId/audio-task', requiresAuth: true);
       final payload = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
       if (!mounted) {
         return;
@@ -349,7 +355,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                     children: [
                       Text(
                         _articleId == null ? '新建阅读文章' : '编辑文章 #$_articleId',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: AppTheme.kaitiTextStyle(Theme.of(context).textTheme.headlineSmall),
                       ),
                       const SizedBox(height: AppSpace.xs),
                       Text(
@@ -572,32 +578,39 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
 
   @override
   Widget build(BuildContext context) {
-    final adminState = ref.watch(adminConsoleProvider);
+    final session = ref.watch(sessionProvider);
+    final isAdmin = _isAdminSession(session);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_isCreateMode ? '新建文章' : '编辑文章'),
       ),
-      body: !adminState.initialized
-          ? const AppPageScrollView(
-              children: [
-                SizedBox(height: 140),
-                AppLoadingView(label: '正在初始化后台环境...'),
-              ],
-            )
-          : !adminState.hasAdminApiKey
+      body: !session.isAuthenticated
               ? AppPageScrollView(
                   children: [
                     const SizedBox(height: 140),
                     AppEmptyState(
-                      title: '还没有配置 Admin Key',
-                      subtitle: '请先返回内容运营页保存管理密钥，再进入文章编辑。',
-                      icon: Icons.admin_panel_settings_outlined,
-                      actionLabel: '返回内容运营页',
-                      onAction: () => context.pop(),
+                      title: '请先登录',
+                      subtitle: '登录管理员账号后才可以编辑文章。',
+                      icon: Icons.lock_outline,
+                      actionLabel: '去登录',
+                      onAction: () => context.go('/login'),
                     ),
                   ],
                 )
+              : !isAdmin
+                  ? AppPageScrollView(
+                      children: [
+                        const SizedBox(height: 140),
+                        AppEmptyState(
+                          title: '当前账号没有后台权限',
+                          subtitle: '请使用管理员账号登录后再进入文章编辑页。',
+                          icon: Icons.admin_panel_settings_outlined,
+                          actionLabel: '返回内容运营页',
+                          onAction: () => context.go('/admin/content'),
+                        ),
+                      ],
+                    )
               : _loading
                   ? const AppPageScrollView(
                       children: [

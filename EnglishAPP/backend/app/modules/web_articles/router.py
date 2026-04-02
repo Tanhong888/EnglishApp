@@ -1,25 +1,29 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from html import unescape
 from urllib.error import URLError
 from urllib.request import urlopen
 from xml.etree import ElementTree as ET
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_admin_user
 from app.core.config import settings
 from app.core.response import success
 from app.db.article_content_sync import ensure_article_slug, ensure_article_source, sync_article_content_snapshot
-from app.db.models import Article, ArticleParagraph
+from app.db.models import Article, ArticleParagraph, User
 from app.db.session import get_db
-from app.modules.admin.router import require_admin_key
 
 router = APIRouter()
 ATOM_NS = {'atom': 'http://www.w3.org/2005/Atom'}
+HTML_TAG_RE = re.compile(r'<[^>]+>')
+WHITESPACE_RE = re.compile(r'\s+')
 
 
 class WebArticleImportRequest(BaseModel):
@@ -36,6 +40,15 @@ class WebArticleImportRequest(BaseModel):
 def fetch_feed_xml(url: str) -> str:
     with urlopen(url, timeout=settings.web_article_request_timeout_seconds) as response:
         return response.read().decode('utf-8', errors='ignore')
+
+
+def _clean_text(value: str | None) -> str:
+    if not value:
+        return ''
+    text = unescape(value)
+    text = HTML_TAG_RE.sub(' ', text)
+    text = WHITESPACE_RE.sub(' ', text)
+    return text.strip()
 
 
 def _feed_urls() -> list[str]:
@@ -63,14 +76,14 @@ def _rss_entries(root: ET.Element) -> list[dict]:
     channel = root.find('channel')
     if channel is None:
         return []
-    source = (channel.findtext('title') or '').strip() or 'Unknown Source'
+    source = _clean_text(channel.findtext('title')) or 'Unknown Source'
     items: list[dict] = []
     for item in channel.findall('item'):
         items.append(
             {
-                'title': (item.findtext('title') or '').strip(),
+                'title': _clean_text(item.findtext('title')),
                 'url': (item.findtext('link') or '').strip(),
-                'summary': (item.findtext('description') or '').strip(),
+                'summary': _clean_text(item.findtext('description')),
                 'published_at': _parse_datetime(item.findtext('pubDate')),
                 'source': source,
             }
@@ -78,17 +91,31 @@ def _rss_entries(root: ET.Element) -> list[dict]:
     return items
 
 
+def _atom_link_href(entry: ET.Element) -> str:
+    fallback = ''
+    for link in entry.findall('atom:link', ATOM_NS):
+        href = link.attrib.get('href', '').strip()
+        rel = (link.attrib.get('rel') or 'alternate').strip().lower()
+        if not href:
+            continue
+        if fallback == '':
+            fallback = href
+        if rel in {'', 'alternate'}:
+            return href
+    return fallback
+
+
 def _atom_entries(root: ET.Element) -> list[dict]:
-    source = (root.findtext('atom:title', default='', namespaces=ATOM_NS) or '').strip() or 'Unknown Source'
+    source = _clean_text(root.findtext('atom:title', default='', namespaces=ATOM_NS)) or 'Unknown Source'
     items: list[dict] = []
     for entry in root.findall('atom:entry', ATOM_NS):
-        link = entry.find('atom:link', ATOM_NS)
-        href = link.attrib.get('href', '').strip() if link is not None else ''
-        summary = (entry.findtext('atom:summary', default='', namespaces=ATOM_NS) or '').strip()
+        summary = _clean_text(entry.findtext('atom:summary', default='', namespaces=ATOM_NS))
+        if not summary:
+            summary = _clean_text(entry.findtext('atom:content', default='', namespaces=ATOM_NS))
         items.append(
             {
-                'title': (entry.findtext('atom:title', default='', namespaces=ATOM_NS) or '').strip(),
-                'url': href,
+                'title': _clean_text(entry.findtext('atom:title', default='', namespaces=ATOM_NS)),
+                'url': _atom_link_href(entry),
                 'summary': summary,
                 'published_at': _parse_datetime(entry.findtext('atom:updated', default='', namespaces=ATOM_NS)),
                 'source': source,
@@ -175,38 +202,47 @@ def search_web_articles(
 @router.post('/import')
 def import_web_article(
     payload: WebArticleImportRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    existing = db.scalar(select(Article).where(Article.source_url == payload.url))
+    title = _clean_text(payload.title)
+    source = _clean_text(payload.source)
+    summary = _clean_text(payload.summary)
+    source_url = payload.url.strip()
+    published_at = payload.published_at if payload.published_at.tzinfo else payload.published_at.replace(tzinfo=UTC)
+
+    if not title or not source or not source_url:
+        raise HTTPException(status_code=422, detail='invalid_web_article_payload')
+
+    existing = db.scalar(select(Article).where(Article.source_url == source_url))
     if existing is not None:
         return success({'article_id': existing.id, 'imported': False, 'idempotent': True})
 
-    inferred_topic, inferred_stage, inferred_level = _infer_defaults(payload.source, payload.url)
+    inferred_topic, inferred_stage, inferred_level = _infer_defaults(source, source_url)
     stage_tag = payload.stage_tag or inferred_stage
     level = payload.level or inferred_level
     topic = payload.topic or inferred_topic
-    paragraph = payload.summary.strip() or payload.title.strip()
+    paragraph = summary or title
     reading_minutes = max(1, len(paragraph.split()) // 180 + 1)
 
     article = Article(
-        title=payload.title,
+        title=title,
         stage_tag=stage_tag,
         level=level,
         topic=topic,
-        summary=payload.summary,
+        summary=summary,
         reading_minutes=reading_minutes,
         status='draft',
-        source_url=payload.url,
+        source_url=source_url,
         is_published=False,
         audio_status='pending',
-        published_at=payload.published_at.astimezone(UTC).replace(tzinfo=None),
+        published_at=published_at.astimezone(UTC).replace(tzinfo=None),
     )
     db.add(article)
     db.flush()
     db.add(ArticleParagraph(article_id=article.id, paragraph_index=1, text=paragraph))
     ensure_article_slug(db, article)
-    ensure_article_source(db, article=article, source_type='rss', source_name=payload.source, source_url=payload.url)
+    ensure_article_source(db, article=article, source_type='rss', source_name=source, source_url=source_url)
     sync_article_content_snapshot(db, article=article, paragraphs=[paragraph])
     db.commit()
     return success({'article_id': article.id, 'imported': True, 'idempotent': False})

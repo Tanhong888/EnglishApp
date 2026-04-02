@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import is_admin_user
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
@@ -66,6 +67,7 @@ def serialize_user(user: User) -> dict:
         'email': user.email,
         'nickname': user.nickname,
         'target': user.target,
+        'is_admin': is_admin_user(user),
     }
 
 

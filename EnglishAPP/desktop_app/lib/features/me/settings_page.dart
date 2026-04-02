@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_page_scroll_view.dart';
 import '../../shared/widgets/app_section_card.dart';
@@ -34,7 +35,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     final api = ref.read(authApiProvider);
     final response = await api.get('/users/me', requiresAuth: true);
-    return (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    await ref.read(sessionProvider.notifier).updateUser({
+      'email': data['email'],
+      'nickname': data['nickname'],
+      'target': data['target'],
+      'is_admin': data['is_admin'],
+    });
+    return data;
   }
 
   Future<void> _refresh() async {
@@ -227,6 +235,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   final nickname = data['nickname']?.toString() ?? session.user?['nickname']?.toString() ?? '学习者';
                   final email = data['email']?.toString() ?? '-';
                   final target = data['target']?.toString();
+                  final isAdmin = (data['is_admin'] as bool?) ?? (session.user?['is_admin'] as bool? ?? false);
                   final isActive = data['is_active'] as bool? ?? true;
                   final deletionDueAt = data['deletion_due_at']?.toString();
 
@@ -248,7 +257,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('账号信息', style: Theme.of(context).textTheme.headlineSmall),
+                              Text(
+                                '账号信息',
+                                style: AppTheme.kaitiTextStyle(Theme.of(context).textTheme.headlineSmall),
+                              ),
                               const SizedBox(height: AppSpace.sm),
                               Wrap(
                                 spacing: AppSpace.xs,
@@ -308,21 +320,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(Icons.info_outline),
                           title: Text('当前版本能力'),
-                          subtitle: Text('已恢复英语文章阅读、点词查词、文章导入与基础内容运营链路。'),
+                          subtitle: Text('已恢复注册登录、英语文章阅读、句子解析、小测、点词查词与内容运营链路。'),
                         ),
                       ),
                       const SizedBox(height: AppSpace.lg),
-                      AppSectionCard(
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.newspaper_outlined),
-                          title: const Text('内容运营'),
-                          subtitle: const Text('搜索外部英文文章，导入草稿并发布到阅读库'),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => context.push('/admin/content'),
+                      if (isAdmin)
+                        AppSectionCard(
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.newspaper_outlined),
+                            title: const Text('内容运营'),
+                            subtitle: const Text('搜索外部英文文章，导入草稿并发布到阅读库'),
+                            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                            onTap: () => context.push('/admin/content'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: AppSpace.lg),
+                      if (isAdmin) const SizedBox(height: AppSpace.lg),
                       AppSectionCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,

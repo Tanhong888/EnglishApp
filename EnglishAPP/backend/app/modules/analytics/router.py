@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, require_admin_user
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.response import success
 from app.db.models import AnalyticsEvent, User
@@ -94,15 +94,29 @@ def _query_events(db: Session, *, days: int, user_id: int | None = None) -> tupl
 
 
 @router.post('/events')
-def track_event(payload: TrackEventRequest, request: Request, db: Session = Depends(get_db)) -> dict:
-    keys = _track_rate_limit_keys(payload, request)
+def track_event(
+    payload: TrackEventRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    keys = _track_rate_limit_keys(
+        TrackEventRequest(
+            event_name=payload.event_name,
+            user_id=current_user.id,
+            article_id=payload.article_id,
+            word=payload.word,
+            context=payload.context,
+        ),
+        request,
+    )
     _enforce_track_event_rate_limit(keys)
 
     word = payload.word.strip().lower() if payload.word else None
     context_json = json.dumps(payload.context, ensure_ascii=False) if payload.context is not None else None
 
     event = AnalyticsEvent(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         event_name=payload.event_name,
         article_id=payload.article_id,
         word=word,
@@ -125,6 +139,7 @@ def track_event(payload: TrackEventRequest, request: Request, db: Session = Depe
 def list_events(
     limit: int = Query(default=20, ge=1, le=100),
     event_name: str | None = None,
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     query = select(AnalyticsEvent)
@@ -150,6 +165,7 @@ def list_events(
 @router.get('/dashboard/summary')
 def dashboard_summary(
     days: int = Query(default=7, ge=1, le=90),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     since, events = _query_events(db, days=days)

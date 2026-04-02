@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 import '../../shared/widgets/app_page_scroll_view.dart';
@@ -85,6 +86,7 @@ class _MePageState extends ConsumerState<MePage> {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
     final session = ref.watch(sessionProvider);
+    final isAdmin = session.user?['is_admin'] as bool? ?? false;
 
     if (!session.isAuthenticated) {
       return Scaffold(
@@ -161,7 +163,7 @@ class _MePageState extends ConsumerState<MePage> {
                         const SizedBox(height: AppSpace.md),
                         Text(
                           '你好，${session.user?['nickname'] ?? '学习者'}',
-                          style: Theme.of(context).textTheme.headlineSmall,
+                          style: AppTheme.kaitiTextStyle(Theme.of(context).textTheme.headlineSmall),
                         ),
                         const SizedBox(height: AppSpace.sm),
                         Text(
@@ -229,13 +231,15 @@ class _MePageState extends ConsumerState<MePage> {
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                         onTap: () => context.push('/settings'),
                       ),
-                      const Divider(),
-                      ListTile(
-                        title: const Text('内容运营'),
-                        subtitle: const Text('导入外部文章并发布到阅读库'),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () => context.push('/admin/content'),
-                      ),
+                      if (isAdmin)
+                        const Divider(),
+                      if (isAdmin)
+                        ListTile(
+                          title: const Text('内容运营'),
+                          subtitle: const Text('导入外部文章并发布到阅读库'),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                          onTap: () => context.push('/admin/content'),
+                        ),
                     ],
                   ),
                 ),

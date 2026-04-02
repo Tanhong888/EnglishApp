@@ -1,28 +1,21 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_admin_user
 from app.core.config import settings
 from app.core.response import success
 from app.db.article_content_sync import ensure_article_slug, ensure_article_source, summarize_paragraphs, sync_article_content_snapshot
-from app.db.models import Article, ArticleAudioTask, ArticleParagraph, Quiz, QuizOption, QuizQuestion, SentenceAnalysis, Word
+from app.db.models import Article, ArticleAudioTask, ArticleParagraph, ArticleSource, Quiz, QuizOption, QuizQuestion, SentenceAnalysis, User, Word
 from app.db.session import get_db
 
 router = APIRouter()
-
-
-def require_admin_key(x_admin_key: str | None = Header(default=None, alias='X-Admin-Key')) -> str:
-    if x_admin_key is None:
-        raise HTTPException(status_code=401, detail='missing_admin_api_key')
-    if x_admin_key != settings.admin_api_key:
-        raise HTTPException(status_code=403, detail='invalid_admin_api_key')
-    return x_admin_key
 
 
 class AdminArticleCreateRequest(BaseModel):
@@ -116,9 +109,32 @@ def _replace_paragraphs(db: Session, article: Article, paragraphs: list[str]) ->
         if paragraph.paragraph_index not in desired:
             db.delete(paragraph)
 
+    db.flush()
+
+
+def _serialize_source(db: Session, article: Article) -> dict[str, str | None]:
+    source = db.scalar(
+        select(ArticleSource)
+        .where(ArticleSource.article_id == article.id)
+        .order_by(ArticleSource.id.desc())
+        .limit(1)
+    )
+    if source is None:
+        return {
+            'type': None,
+            'name': None,
+            'url': article.source_url,
+        }
+    return {
+        'type': source.source_type,
+        'name': source.source_name,
+        'url': source.source_url or article.source_url,
+    }
+
 
 def _serialize_admin_article(db: Session, article: Article) -> dict:
     paragraph_count = db.scalar(select(func.count(ArticleParagraph.id)).where(ArticleParagraph.article_id == article.id)) or 0
+    source = _serialize_source(db, article)
     return {
         'id': article.id,
         'title': article.title,
@@ -129,11 +145,14 @@ def _serialize_admin_article(db: Session, article: Article) -> dict:
         'summary': article.summary,
         'status': article.status,
         'source_url': article.source_url,
+        'source': source,
         'reading_minutes': article.reading_minutes,
         'is_published': article.is_published,
         'paragraph_count': paragraph_count,
         'audio_status': article.audio_status,
         'published_at': article.published_at.isoformat(),
+        'created_at': article.created_at.isoformat(),
+        'updated_at': article.updated_at.isoformat(),
     }
 
 
@@ -203,7 +222,7 @@ def _progress_audio_task(db: Session, article: Article, task: ArticleAudioTask) 
 
 @router.get('/articles')
 def list_admin_articles(
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     q: str | None = Query(default=None, min_length=1, max_length=100),
     published: bool | None = None,
     page: int = Query(default=1, ge=1),
@@ -233,7 +252,7 @@ def list_admin_articles(
 
 
 @router.get('/articles/{article_id}')
-def admin_article_detail(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def admin_article_detail(article_id: int, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     article = db.get(Article, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
@@ -243,7 +262,7 @@ def admin_article_detail(article_id: int, _: str = Depends(require_admin_key), d
 
 
 @router.post('/articles')
-def create_admin_article(payload: AdminArticleCreateRequest, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def create_admin_article(payload: AdminArticleCreateRequest, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     article = Article(
         title=payload.title,
         stage_tag=payload.stage_tag,
@@ -273,7 +292,7 @@ def create_admin_article(payload: AdminArticleCreateRequest, _: str = Depends(re
 def update_admin_article(
     article_id: int,
     payload: AdminArticleUpdateRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     article = db.get(Article, article_id)
@@ -300,7 +319,7 @@ def update_admin_article(
 def publish_admin_article(
     article_id: int,
     payload: PublishRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     article = db.get(Article, article_id)
@@ -317,7 +336,7 @@ def publish_admin_article(
 
 
 @router.get('/articles/{article_id}/audio-task')
-def admin_audio_task(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def admin_audio_task(article_id: int, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     article = db.get(Article, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
@@ -338,7 +357,7 @@ def admin_audio_task(article_id: int, _: str = Depends(require_admin_key), db: S
 
 
 @router.get('/articles/{article_id}/sentence-analyses')
-def admin_get_sentence_analyses(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def admin_get_sentence_analyses(article_id: int, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     article = db.get(Article, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
@@ -354,7 +373,7 @@ def admin_get_sentence_analyses(article_id: int, _: str = Depends(require_admin_
 def admin_replace_sentence_analyses(
     article_id: int,
     payload: SentenceAnalysisReplaceRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     article = db.get(Article, article_id)
@@ -392,7 +411,7 @@ def admin_replace_sentence_analyses(
 
 
 @router.get('/articles/{article_id}/quiz')
-def admin_get_quiz(article_id: int, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def admin_get_quiz(article_id: int, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     article = db.get(Article, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
@@ -430,7 +449,7 @@ def admin_get_quiz(article_id: int, _: str = Depends(require_admin_key), db: Ses
 def admin_replace_quiz(
     article_id: int,
     payload: QuizReplaceRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     article = db.get(Article, article_id)
@@ -476,7 +495,7 @@ def admin_replace_quiz(
 
 @router.get('/words')
 def admin_list_words(
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     q: str | None = Query(default=None, min_length=1, max_length=100),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=50),
@@ -502,7 +521,7 @@ def admin_list_words(
 
 
 @router.post('/words')
-def admin_create_word(payload: AdminWordCreateRequest, _: str = Depends(require_admin_key), db: Session = Depends(get_db)) -> dict:
+def admin_create_word(payload: AdminWordCreateRequest, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
     word = Word(lemma=payload.lemma.lower(), phonetic=payload.phonetic, pos=payload.pos, meaning_cn=payload.meaning_cn)
     db.add(word)
     db.commit()
@@ -514,7 +533,7 @@ def admin_create_word(payload: AdminWordCreateRequest, _: str = Depends(require_
 def admin_update_word(
     word_id: int,
     payload: AdminWordUpdateRequest,
-    _: str = Depends(require_admin_key),
+    _: User = Depends(require_admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
     word = db.get(Word, word_id)
@@ -525,5 +544,7 @@ def admin_update_word(
     db.commit()
     db.refresh(word)
     return success({'id': word.id, 'lemma': word.lemma, 'phonetic': word.phonetic, 'pos': word.pos, 'meaning_cn': word.meaning_cn})
+
+
 
 

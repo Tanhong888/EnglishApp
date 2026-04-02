@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core.config import settings
+from app.core.config import cors_origin_list, settings
 from app.core.response import success
 from app.core.router import api_router
 from app.db.init_db import init_db, seed_db
@@ -26,8 +26,9 @@ SECURITY_RESPONSE_HEADERS = {
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    with SessionLocal() as db:
-        seed_db(db)
+    if settings.seed_demo_data and settings.app_env == 'dev':
+        with SessionLocal() as db:
+            seed_db(db)
 
     if settings.sentry_dsn:
         try:
@@ -65,7 +66,7 @@ app = FastAPI(title=settings.app_name, version='0.1.0', lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=cors_origin_list(),
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],

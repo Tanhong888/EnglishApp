@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 import '../../shared/widgets/app_page_scroll_view.dart';
@@ -154,7 +155,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                           tone: session.isAuthenticated ? AppStatusTone.brand : AppStatusTone.neutral,
                         ),
                         const SizedBox(height: AppSpace.md),
-                        Text('你好，$nickname', style: Theme.of(context).textTheme.headlineSmall),
+                        Text(
+                          '你好，$nickname',
+                          style: AppTheme.kaitiTextStyle(Theme.of(context).textTheme.headlineSmall),
+                        ),
                         const SizedBox(height: AppSpace.sm),
                         Text(
                           '从一篇合适的文章开始，阅读时可以直接点词查看释义，并把重点单词保存到生词本。',

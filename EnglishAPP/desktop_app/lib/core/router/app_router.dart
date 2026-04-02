@@ -6,6 +6,7 @@ import '../../features/admin/admin_content_page.dart';
 import '../../features/articles/article_detail_page.dart';
 import '../../features/articles/articles_page.dart';
 import '../../features/auth/login_page.dart';
+import '../../features/auth/register_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/me/analytics_page.dart';
 import '../../features/me/me_page.dart';
@@ -20,6 +21,7 @@ class AppRouter {
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashPage()),
       GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
+      GoRoute(path: '/register', builder: (_, __) => const RegisterPage()),
       GoRoute(path: '/home', builder: (_, __) => const HomePage()),
       GoRoute(path: '/articles', builder: (_, __) => const ArticlesPage()),
       GoRoute(

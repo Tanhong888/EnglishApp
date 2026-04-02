@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, is_admin_user
 from app.core.config import settings
 from app.core.response import success
 from app.db.models import RefreshToken, User, UserArticleFavorite, UserReadingProgress, UserVocabEntry
@@ -32,6 +32,7 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)) -> 
             'email': current_user.email,
             'nickname': current_user.nickname,
             'target': current_user.target,
+            'is_admin': is_admin_user(current_user),
             'is_active': current_user.is_active,
             'deleted_at': current_user.deleted_at.isoformat() if current_user.deleted_at else None,
             'deletion_due_at': current_user.deletion_due_at.isoformat() if current_user.deletion_due_at else None,
@@ -59,6 +60,7 @@ def update_current_user_profile(
             'email': current_user.email,
             'nickname': current_user.nickname,
             'target': current_user.target,
+            'is_admin': is_admin_user(current_user),
             'is_active': current_user.is_active,
             'deleted_at': current_user.deleted_at.isoformat() if current_user.deleted_at else None,
             'deletion_due_at': current_user.deletion_due_at.isoformat() if current_user.deletion_due_at else None,

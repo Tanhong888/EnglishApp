@@ -69,6 +69,10 @@ def register_and_login(client: TestClient) -> tuple[str, dict]:
     return email, tokens
 
 
+def make_admin_headers(client: TestClient) -> dict:
+    return make_headers(login_and_get_tokens(client)['access_token'])
+
+
 def test_healthcheck(client: TestClient) -> None:
     response = client.get('/health')
     assert response.status_code == 200
@@ -121,6 +125,7 @@ def test_articles_list_success(client: TestClient) -> None:
     payload = response.json()
     assert payload['code'] == 0
     assert 'items' in payload['data']
+
 
 
 def test_articles_seed_catalog_expanded(client: TestClient) -> None:
@@ -619,11 +624,12 @@ def test_word_pronunciation_endpoint(client: TestClient) -> None:
 
 
 def test_analytics_track_and_list(client: TestClient) -> None:
+    headers = make_admin_headers(client)
     create_response = client.post(
         '/api/v1/analytics/events',
+        headers=headers,
         json={
             'event_name': 'word_tap',
-            'user_id': 1,
             'article_id': 2,
             'word': 'Consolidate',
             'context': {'from': 'article_detail', 'position': 3},
@@ -634,13 +640,13 @@ def test_analytics_track_and_list(client: TestClient) -> None:
     assert create_data['event_name'] == 'word_tap'
     event_id = create_data['event_id']
 
-    list_response = client.get('/api/v1/analytics/events', params={'event_name': 'word_tap', 'limit': 10})
+    list_response = client.get('/api/v1/analytics/events', headers=headers, params={'event_name': 'word_tap', 'limit': 10})
     assert list_response.status_code == 200
     items = list_response.json()['data']['items']
     assert isinstance(items, list)
     assert any(item['event_id'] == event_id for item in items)
 
-    summary_response = client.get('/api/v1/analytics/dashboard/summary', params={'days': 7})
+    summary_response = client.get('/api/v1/analytics/dashboard/summary', headers=headers, params={'days': 7})
     assert summary_response.status_code == 200
     summary_data = summary_response.json()['data']
     assert summary_data['window_days'] == 7
@@ -665,9 +671,9 @@ def test_analytics_me_summary_scoped_by_current_user(client: TestClient) -> None
 
     create_demo = client.post(
         '/api/v1/analytics/events',
+        headers=demo_headers,
         json={
             'event_name': 'user_scope_probe_u1',
-            'user_id': demo_user_id,
             'article_id': 1,
             'context': {'source': 'scope_test'},
         },
@@ -676,9 +682,9 @@ def test_analytics_me_summary_scoped_by_current_user(client: TestClient) -> None
 
     create_other = client.post(
         '/api/v1/analytics/events',
+        headers=other_headers,
         json={
             'event_name': 'user_scope_probe_u2',
-            'user_id': other_user_id,
             'article_id': 1,
             'context': {'source': 'scope_test'},
         },
@@ -710,12 +716,13 @@ def test_analytics_track_rate_limit(client: TestClient) -> None:
     try:
         analytics_module.ANALYTICS_TRACK_LIMIT_PER_MINUTE = 1
         analytics_module.reset_analytics_rate_limit_state_for_test()
+        headers = make_admin_headers(client)
 
         first = client.post(
             '/api/v1/analytics/events',
+            headers=headers,
             json={
                 'event_name': 'rate_limit_probe',
-                'user_id': 9999,
                 'article_id': 1,
                 'context': {'source': 'rate_limit_test'},
             },
@@ -724,9 +731,9 @@ def test_analytics_track_rate_limit(client: TestClient) -> None:
 
         second = client.post(
             '/api/v1/analytics/events',
+            headers=headers,
             json={
                 'event_name': 'rate_limit_probe',
-                'user_id': 9999,
                 'article_id': 1,
                 'context': {'source': 'rate_limit_test'},
             },
@@ -919,10 +926,8 @@ def test_web_article_search_latest_pagination_and_source_errors(client: TestClie
 
 
 def test_web_article_import_infers_topic_and_level_from_source(client: TestClient) -> None:
-    from app.core.config import settings
-
     unique_id = uuid4().hex
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     payload = {
         'title': f'AI Research Update {unique_id}',
         'url': f'https://www.techcrunch.com/story-{unique_id}',
@@ -944,10 +949,8 @@ def test_web_article_import_infers_topic_and_level_from_source(client: TestClien
 
 
 def test_web_article_import_creates_draft_and_is_idempotent(client: TestClient) -> None:
-    from app.core.config import settings
-
     unique_id = uuid4().hex
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     payload = {
         'title': f'Imported RSS Article {unique_id}',
         'url': f'https://example.com/imported-rss-article-{unique_id}',
@@ -1001,16 +1004,15 @@ def test_admin_articles_require_admin_key(client: TestClient) -> None:
     missing = client.get('/api/v1/admin/articles')
     assert missing.status_code == 401
 
-    invalid = client.get('/api/v1/admin/articles', headers={'X-Admin-Key': 'wrong-key'})
+    _, non_admin_tokens = register_and_login(client)
+    invalid = client.get('/api/v1/admin/articles', headers=make_headers(non_admin_tokens['access_token']))
     assert invalid.status_code == 403
 
 
 
 def test_admin_articles_search_filters_title_summary_and_source(client: TestClient) -> None:
-    from app.core.config import settings
-
     unique_id = uuid4().hex
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     create_response = client.post(
         '/api/v1/admin/articles',
         headers=headers,
@@ -1046,9 +1048,7 @@ def test_admin_articles_search_filters_title_summary_and_source(client: TestClie
 
 
 def test_admin_article_crud_and_publish_flow(client: TestClient) -> None:
-    from app.core.config import settings
-
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
 
     create_response = client.post(
         '/api/v1/admin/articles',
@@ -1117,9 +1117,7 @@ def test_admin_article_crud_and_publish_flow(client: TestClient) -> None:
 
 
 def test_admin_sentence_analysis_and_quiz_and_word_management(client: TestClient) -> None:
-    from app.core.config import settings
-
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
 
     create_article = client.post(
         '/api/v1/admin/articles',
@@ -1248,7 +1246,7 @@ def test_admin_publish_enqueues_audio_task_and_reaches_ready(client: TestClient)
 
     from app.core.config import settings
 
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     create_response = client.post(
         '/api/v1/admin/articles',
         headers=headers,
@@ -1304,9 +1302,7 @@ def test_admin_publish_enqueues_audio_task_and_reaches_ready(client: TestClient)
 
 
 def test_admin_article_snapshots_and_sources_are_persisted(client: TestClient) -> None:
-    from app.core.config import settings
-
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     create_response = client.post(
         '/api/v1/admin/articles',
         headers=headers,
@@ -1370,7 +1366,7 @@ def test_admin_audio_task_retries_and_fails(client: TestClient) -> None:
 
     from app.core.config import settings
 
-    headers = {'X-Admin-Key': settings.admin_api_key}
+    headers = make_admin_headers(client)
     create_response = client.post(
         '/api/v1/admin/articles',
         headers=headers,
@@ -1413,3 +1409,59 @@ def test_admin_audio_task_retries_and_fails(client: TestClient) -> None:
     assert audio_data['retry_hint'] == '稍后重试'
 
 
+
+def test_web_article_search_strips_html_and_prefers_atom_alternate_link(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    web_articles_module = importlib.import_module('app.modules.web_articles.router')
+
+    feeds = {
+        'https://feed-a.example/atom.xml': """<?xml version='1.0' encoding='utf-8'?>
+        <feed xmlns='http://www.w3.org/2005/Atom'>
+          <title>Example Feed</title>
+          <entry>
+            <title>AI &amp; Learning</title>
+            <link rel='self' href='https://example.com/self-link' />
+            <link rel='alternate' href='https://example.com/final-link' />
+            <summary><![CDATA[<p>Better <strong>reading</strong> habits.</p>]]></summary>
+            <updated>2026-03-23T09:00:00Z</updated>
+          </entry>
+        </feed>
+        """,
+    }
+
+    monkeypatch.setattr(web_articles_module.settings, 'web_article_feed_urls', 'https://feed-a.example/atom.xml')
+    monkeypatch.setattr(web_articles_module, 'fetch_feed_xml', lambda url: feeds[url])
+
+    response = client.get('/api/v1/web-articles/search', params={'page': 1, 'size': 10})
+    assert response.status_code == 200
+    item = response.json()['data']['items'][0]
+    assert item['title'] == 'AI & Learning'
+    assert item['url'] == 'https://example.com/final-link'
+    assert item['summary'] == 'Better reading habits.'
+
+
+def test_admin_articles_include_source_metadata(client: TestClient) -> None:
+    unique_id = uuid4().hex
+    headers = make_admin_headers(client)
+    payload = {
+        'title': f'Imported RSS Article {unique_id}',
+        'url': f'https://example.com/imported-rss-article-{unique_id}',
+        'source': 'NPR Science',
+        'summary': 'Imported summary for editing before publication.',
+        'published_at': '2026-03-22T09:00:00Z',
+        'stage_tag': 'cet6',
+        'level': 2,
+        'topic': 'science',
+    }
+
+    import_response = client.post('/api/v1/web-articles/import', headers=headers, json=payload)
+    assert import_response.status_code == 200
+    article_id = import_response.json()['data']['article_id']
+
+    list_response = client.get('/api/v1/admin/articles', headers=headers, params={'q': unique_id})
+    assert list_response.status_code == 200
+    item = next(item for item in list_response.json()['data']['items'] if item['id'] == article_id)
+    assert item['source']['type'] == 'rss'
+    assert item['source']['name'] == 'NPR Science'
+    assert item['source']['url'] == payload['url']

@@ -1,9 +1,62 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'tokens.dart';
 
 class AppTheme {
+  static const String _uiFontFamily = 'KaiTi';
+  static const List<String> _uiFontFallback = <String>[
+    'STKaiti',
+    'KaiTi_GB2312',
+    'Kaiti SC',
+    'BiauKai',
+    'DFKai-SB',
+    'SimKai',
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Segoe UI',
+    'Arial',
+  ];
+
+  static TextStyle kaitiTextStyle(
+    TextStyle? base, {
+    Color? color,
+    FontWeight? fontWeight,
+    double? fontSize,
+    double? height,
+  }) {
+    final seed = base ?? const TextStyle();
+    return seed.copyWith(
+      fontFamily: _uiFontFamily,
+      fontFamilyFallback: _uiFontFallback,
+      color: color,
+      fontWeight: fontWeight,
+      fontSize: fontSize,
+      height: height,
+    );
+  }
+
+  static TextStyle _sansTextStyle({
+    required double fontSize,
+    FontWeight? fontWeight,
+    double? height,
+    Color? color,
+  }) {
+    return GoogleFonts.notoSans(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      height: height,
+      color: color,
+    ).copyWith(
+      fontFamilyFallback: const <String>[
+        'Microsoft YaHei UI',
+        'Segoe UI',
+        'Arial',
+      ],
+    );
+  }
+
   static ThemeData get light {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppColors.brand,
@@ -34,50 +87,62 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.bg,
     );
 
-    final textTheme = GoogleFonts.notoSansTextTheme(base.textTheme).copyWith(
-      headlineSmall: GoogleFonts.notoSans(
+    final baseTextTheme = GoogleFonts.notoSansTextTheme(base.textTheme);
+    final textTheme = baseTextTheme.copyWith(
+      headlineSmall: _sansTextStyle(
         fontSize: 28,
         fontWeight: FontWeight.w700,
         color: AppColors.textPrimary,
       ),
-      titleLarge: GoogleFonts.notoSans(
+      titleLarge: kaitiTextStyle(
+        baseTextTheme.titleLarge,
         fontSize: 20,
         fontWeight: FontWeight.w700,
+        height: 1.3,
         color: AppColors.textPrimary,
       ),
-      titleMedium: GoogleFonts.notoSans(
+      titleMedium: _sansTextStyle(
         fontSize: 17,
         fontWeight: FontWeight.w700,
         color: AppColors.textPrimary,
       ),
-      titleSmall: GoogleFonts.notoSans(
+      titleSmall: kaitiTextStyle(
+        baseTextTheme.titleSmall,
         fontSize: 15,
         fontWeight: FontWeight.w600,
+        height: 1.3,
         color: AppColors.textPrimary,
       ),
-      bodyLarge: GoogleFonts.notoSans(
+      bodyLarge: kaitiTextStyle(
+        baseTextTheme.bodyLarge,
         fontSize: 15,
         height: 1.6,
         color: AppColors.textPrimary,
       ),
-      bodyMedium: GoogleFonts.notoSans(
+      bodyMedium: kaitiTextStyle(
+        baseTextTheme.bodyMedium,
         fontSize: 14,
         height: 1.55,
         color: AppColors.textPrimary,
       ),
-      bodySmall: GoogleFonts.notoSans(
+      bodySmall: kaitiTextStyle(
+        baseTextTheme.bodySmall,
         fontSize: 12,
         height: 1.45,
         color: AppColors.textSecondary,
       ),
-      labelLarge: GoogleFonts.notoSans(
+      labelLarge: kaitiTextStyle(
+        baseTextTheme.labelLarge,
         fontSize: 13,
         fontWeight: FontWeight.w600,
+        height: 1.25,
         color: AppColors.textPrimary,
       ),
-      labelMedium: GoogleFonts.notoSans(
+      labelMedium: kaitiTextStyle(
+        baseTextTheme.labelMedium,
         fontSize: 12,
         fontWeight: FontWeight.w600,
+        height: 1.2,
         color: AppColors.textSecondary,
       ),
     );
@@ -217,4 +282,3 @@ class AppTheme {
     );
   }
 }
-

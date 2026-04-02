@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/state/session_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import 'app_section_card.dart';
 
@@ -44,7 +45,10 @@ class SplashPage extends ConsumerWidget {
                       child: const Icon(Icons.auto_stories_outlined, color: AppColors.brandStrong, size: 28),
                     ),
                     const SizedBox(height: AppSpace.lg),
-                    Text('英阅通', style: Theme.of(context).textTheme.headlineSmall),
+                    Text(
+                      '英阅通',
+                      style: AppTheme.kaitiTextStyle(Theme.of(context).textTheme.headlineSmall),
+                    ),
                     const SizedBox(height: AppSpace.xs),
                     Text(
                       '简洁稳定的英语阅读桌面端。',
