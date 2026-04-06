@@ -15,6 +15,8 @@ import '../../shared/widgets/app_section_card.dart';
 import '../../shared/widgets/app_state_views.dart';
 import '../../shared/widgets/app_status_badge.dart';
 
+enum _ReadingMode { english, bilingual, translated }
+
 class ArticleDetailPage extends ConsumerStatefulWidget {
   const ArticleDetailPage({super.key, required this.articleId});
 
@@ -35,6 +37,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
   bool _favorite = false;
   bool _audioLoading = false;
   bool _submittingQuiz = false;
+  _ReadingMode _readingMode = _ReadingMode.english;
   Map<String, dynamic>? _quizResult;
 
   @override
@@ -384,52 +387,217 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
     }
   }
 
-  Widget _buildInteractiveParagraph(String text, int paragraphIndex) {
+  String _normalizeLookupText(String text) {
+    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  List<String> _splitIntoSentences(String text) {
+    final items = RegExp(r'[^.!?]+[.!?]?')
+        .allMatches(text)
+        .map((match) => (match.group(0) ?? '').trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    if (items.isNotEmpty) {
+      return items;
+    }
+    final normalized = text.trim();
+    return normalized.isEmpty ? const <String>[] : <String>[normalized];
+  }
+
+  Map<String, String> _sentenceTranslationMap(List<Map<String, dynamic>> analyses) {
+    final translations = <String, String>{};
+    for (final item in analyses) {
+      final sentence = _normalizeLookupText(item['sentence']?.toString() ?? '');
+      final translation = item['translation']?.toString().trim() ?? '';
+      if (sentence.isEmpty || translation.isEmpty) {
+        continue;
+      }
+      translations[sentence] = translation;
+    }
+    return translations;
+  }
+
+  Widget _buildInteractiveParagraphText(String text) {
     final tokens = RegExp(r'[A-Za-z]+|[^A-Za-z]+').allMatches(text).map((m) => m.group(0) ?? '').toList();
     final wordRegex = RegExp(r'^[A-Za-z]+$');
 
-    return Material(
-      color: AppColors.surfaceMuted,
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      child: InkWell(
-        onTap: () => _markProgress(paragraphIndex),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(AppSpace.md),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: AppColors.border),
+    return Wrap(
+      children: tokens.map((token) {
+        if (!wordRegex.hasMatch(token)) {
+          return Text(
+            token,
+            style: const TextStyle(fontSize: 16, height: 1.9, color: AppColors.textPrimary),
+          );
+        }
+
+        final normalized = token.toLowerCase();
+        final cached = _wordCache[normalized];
+        final isNotFound = cached != null && ((cached['found'] as bool?) == false);
+        final isLoading = _loadingWord == normalized;
+        final color = isLoading
+            ? AppColors.warning
+            : (isNotFound ? AppColors.error : AppColors.brandStrong);
+
+        return InkWell(
+          onTap: () => _showWordSheet(normalized),
+          child: Text(
+            token,
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.9,
+              color: color,
+              fontWeight: FontWeight.w600,
+              decoration: TextDecoration.underline,
+              decorationColor: color.withValues(alpha: 0.35),
+            ),
           ),
-          child: Wrap(
-            children: tokens.map((token) {
-              if (!wordRegex.hasMatch(token)) {
-                return Text(token, style: const TextStyle(fontSize: 16, height: 1.8));
-              }
+        );
+      }).toList(),
+    );
+  }
 
-              final normalized = token.toLowerCase();
-              final cached = _wordCache[normalized];
-              final isNotFound = cached != null && ((cached['found'] as bool?) == false);
-              final isLoading = _loadingWord == normalized;
-              final color = isLoading
-                  ? AppColors.warning
-                  : (isNotFound ? AppColors.error : AppColors.brandStrong);
+  Future<void> _showTranslationSheet(
+    Map<String, dynamic> paragraph,
+    List<Map<String, dynamic>> analyses,
+  ) async {
+    final index = (paragraph['index'] as num?)?.toInt() ?? 1;
+    final text = paragraph['text']?.toString() ?? '';
+    final paragraphTranslation = paragraph['translation']?.toString() ?? '';
+    final sentenceTranslationMap = _sentenceTranslationMap(analyses);
+    final sentences = _splitIntoSentences(text);
 
-              return InkWell(
-                onTap: () => _showWordSheet(normalized),
-                child: Text(
-                  token,
-                  style: TextStyle(
-                    fontSize: 16,
-                    height: 1.8,
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                    decoration: TextDecoration.underline,
-                    decorationColor: color.withValues(alpha: 0.35),
+    await _markProgress(index);
+    if (!mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.xs, AppSpace.lg, AppSpace.xl),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '第$index段  句段翻译',
+                    style: Theme.of(context).textTheme.headlineSmall,
                   ),
+                  const SizedBox(height: AppSpace.md),
+                  Text('整段中译', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: AppSpace.sm),
+                  AppSectionCard(
+                    color: AppColors.surfaceMuted,
+                    child: Text(
+                      paragraphTranslation.isNotEmpty
+                          ? paragraphTranslation
+                          : '这段暂时还没有单独维护中文译文。',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.75),
+                    ),
+                  ),
+                  if (sentences.isNotEmpty) ...[
+                    const SizedBox(height: AppSpace.lg),
+                    Text('句子选择', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: AppSpace.sm),
+                    ...sentences.map((sentence) {
+                      final normalizedSentence = _normalizeLookupText(sentence);
+                      final directTranslation = sentenceTranslationMap[normalizedSentence];
+                      final displayTranslation = (directTranslation != null && directTranslation.isNotEmpty)
+                          ? directTranslation
+                          : (sentences.length == 1 && paragraphTranslation.isNotEmpty)
+                              ? paragraphTranslation
+                              : paragraphTranslation.isNotEmpty
+                                  ? '暂未维护单句译文，可先参考整段中译。'
+                                  : '暂未维护单句译文。';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                        child: AppSectionCard(
+                          color: AppColors.surfaceMuted,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(sentence, style: Theme.of(context).textTheme.titleMedium),
+                              const SizedBox(height: AppSpace.sm),
+                              Text(displayTranslation, style: Theme.of(context).textTheme.bodyLarge),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildArticleParagraph(
+    Map<String, dynamic> paragraph,
+    List<Map<String, dynamic>> analyses,
+  ) {
+    final index = (paragraph['index'] as num?)?.toInt() ?? 1;
+    final text = paragraph['text']?.toString() ?? '';
+    final translation = paragraph['translation']?.toString() ?? '';
+    final showTranslation = _readingMode != _ReadingMode.english;
+    final showEnglish = _readingMode != _ReadingMode.translated || translation.isEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.lg),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          onTap: () => _markProgress(index),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppStatusBadge(label: '第$index段'),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () => _showTranslationSheet(paragraph, analyses),
+                      icon: const Icon(Icons.translate, size: 18),
+                      label: const Text('句 / 段翻译'),
+                    ),
+                  ],
                 ),
-              );
-            }).toList(),
+                if (showEnglish)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpace.xs),
+                    child: _buildInteractiveParagraphText(text),
+                  ),
+                if (showTranslation) ...[
+                  const SizedBox(height: AppSpace.sm),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppSpace.md),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandSoft.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      translation.isNotEmpty
+                          ? translation
+                          : '这段暂时还没有中文译文，先显示原文。',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.75),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -835,6 +1003,7 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
 
             final data = snapshot.data ?? const <String, dynamic>{};
             final paragraphs = (data['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
+            final translationStatus = data['translation_status']?.toString() ?? 'unavailable';
             final analyses = (data['sentence_analyses'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
             final quizQuestions = (data['quiz_questions'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
             final audio = (data['audio'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -880,42 +1049,71 @@ class _ArticleDetailPageState extends ConsumerState<ArticleDetailPage> {
                 const SizedBox(height: AppSpace.lg),
                 _buildAudioSection(audio),
                 const SizedBox(height: AppSpace.lg),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('正文', style: Theme.of(context).textTheme.titleLarge),
-                    ),
-                    Text(
-                      '点击单词查词，点击段落记进度',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                AppSectionCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('\u6b63\u6587\u9605\u8bfb\u6a21\u5f0f', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: AppSpace.sm),
+                      SegmentedButton<_ReadingMode>(
+                        segments: const <ButtonSegment<_ReadingMode>>[
+                          ButtonSegment<_ReadingMode>(
+                            value: _ReadingMode.english,
+                            label: Text('\u82f1\u6587\u539f\u6587'),
+                            icon: Icon(Icons.menu_book_outlined),
+                          ),
+                          ButtonSegment<_ReadingMode>(
+                            value: _ReadingMode.bilingual,
+                            label: Text('\u4e2d\u82f1\u5bf9\u7167'),
+                            icon: Icon(Icons.compare_arrows_outlined),
+                          ),
+                          ButtonSegment<_ReadingMode>(
+                            value: _ReadingMode.translated,
+                            label: Text('\u5168\u6587\u4e2d\u8bd1'),
+                            icon: Icon(Icons.translate_outlined),
+                          ),
+                        ],
+                        selected: <_ReadingMode>{_readingMode},
+                        onSelectionChanged: (selection) {
+                          if (selection.isEmpty) {
+                            return;
+                          }
+                          setState(() {
+                            _readingMode = selection.first;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: AppSpace.sm),
+                      Text(
+                        translationStatus == 'unavailable'
+                            ? '\u5f53\u524d\u6587\u7ae0\u8fd8\u6ca1\u6709\u4e2d\u6587\u8bd1\u6587\uff0c\u53ef\u5148\u9605\u8bfb\u539f\u6587\u6216\u4f7f\u7528\u53e5\u6bb5\u7ffb\u8bd1\u3002'
+                            : translationStatus == 'partial'
+                                ? '\u5f53\u524d\u6587\u7ae0\u53ea\u7ef4\u62a4\u4e86\u90e8\u5206\u4e2d\u6587\u8bd1\u6587\uff0c\u7f3a\u5931\u6bb5\u843d\u4f1a\u7ee7\u7eed\u663e\u793a\u82f1\u6587\u3002'
+                                : '\u70b9\u51fb\u5355\u8bcd\u53ef\u67e5\u8bcd\uff1b\u6bcf\u6bb5\u53f3\u4fa7\u53ef\u67e5\u770b\u53e5\u5b50\u6216\u6574\u6bb5\u7ffb\u8bd1\u3002',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(height: AppSpace.lg),
+                Text('\u6b63\u6587', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: AppSpace.sm),
                 if (paragraphs.isEmpty)
                   const AppEmptyState(
-                    title: '这篇文章还没有正文内容',
-                    subtitle: '稍后刷新或返回文章库选择其他文章。',
+                    title: '\u8fd9\u7bc7\u6587\u7ae0\u8fd8\u6ca1\u6709\u6b63\u6587\u5185\u5bb9',
+                    subtitle: '\u7a0d\u540e\u5237\u65b0\u6216\u8fd4\u56de\u6587\u7ae0\u5e93\u9009\u62e9\u5176\u4ed6\u6587\u7ae0\u3002',
                     icon: Icons.article_outlined,
                   )
                 else
-                  ...paragraphs.map((raw) {
-                    final item = raw.cast<String, dynamic>();
-                    final index = (item['index'] as num?)?.toInt() ?? 1;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpace.md),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpace.xs),
-                            child: Text('段落 $index', style: Theme.of(context).textTheme.labelLarge),
-                          ),
-                          _buildInteractiveParagraph(item['text']?.toString() ?? '', index),
-                        ],
-                      ),
-                      );
-                  }),
+                  AppSectionCard(
+                    padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.lg, AppSpace.xl, AppSpace.lg),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: paragraphs
+                          .map((raw) => _buildArticleParagraph(raw.cast<String, dynamic>(), analyses))
+                          .toList(),
+                    ),
+                  ),
                 const SizedBox(height: AppSpace.lg),
                 Text('重点句解析', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: AppSpace.sm),

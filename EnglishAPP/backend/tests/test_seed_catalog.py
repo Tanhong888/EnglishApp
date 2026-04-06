@@ -75,3 +75,23 @@ def test_new_seed_article_exposes_detail_analysis_and_quiz(client: TestClient) -
     quiz_response = client.get(f'/api/v1/articles/{article_id}/quiz')
     assert quiz_response.status_code == 200
     assert len(quiz_response.json()['data']['questions']) == 3
+
+
+def test_long_form_seed_article_exposes_paragraph_translations(client: TestClient) -> None:
+    list_response = client.get('/api/v1/articles', params={'page': 1, 'size': 50, 'sort': 'recommended'})
+    assert list_response.status_code == 200
+
+    items = list_response.json()['data']['items']
+    target = next(item for item in items if item['title'] == 'How Renewable Power Grids Stay Stable')
+    article_id = target['id']
+
+    detail_response = client.get(f'/api/v1/articles/{article_id}')
+    assert detail_response.status_code == 200
+
+    detail = detail_response.json()['data']
+    paragraphs = detail['paragraphs']
+
+    assert detail['translation_status'] == 'complete'
+    assert len(paragraphs) >= 6
+    assert all(item['translation'] for item in paragraphs)
+    assert detail['content_translation']

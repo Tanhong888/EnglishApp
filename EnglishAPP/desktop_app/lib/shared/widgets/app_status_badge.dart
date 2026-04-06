@@ -44,14 +44,18 @@ class AppStatusBadge extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: foregroundColor.withValues(alpha: 0.14)),
       ),
       child: Text(
         label,
-        style: theme.textTheme.labelMedium?.copyWith(color: foregroundColor),
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: foregroundColor,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

@@ -11,6 +11,12 @@ from app.db.article_content_sync import (
     sync_article_content_snapshot,
     sync_reading_progress_completion,
 )
+from app.db.demo_content_bank import (
+    DEMO_PARAGRAPH_TRANSLATION_BANK,
+    LONG_FORM_ARTICLE_SPECS,
+    LONG_FORM_QUIZ_BANK,
+    LONG_FORM_SENTENCE_ANALYSIS_SPECS,
+)
 from app.db.models import (
     Article,
     ArticleAudioTask,
@@ -391,6 +397,8 @@ DEMO_ARTICLE_SPECS = [{'title': 'How Sleep Shapes Memory',
                  'For students, learning about privacy is part of digital literacy. Knowing how to protect passwords, '
                  'review permissions, and question unnecessary data requests can reduce risk over time.']}]
 
+DEMO_ARTICLE_SPECS = [*DEMO_ARTICLE_SPECS, *LONG_FORM_ARTICLE_SPECS]
+
 DEMO_SENTENCE_ANALYSIS_SPECS = {'How Sleep Shapes Memory': [{'sentence_index': 1,
                               'sentence': 'Sleep is not simply a passive state of rest.',
                               'translation': 'Sleep is not only passive rest.',
@@ -631,6 +639,8 @@ DEMO_SENTENCE_ANALYSIS_SPECS = {'How Sleep Shapes Memory': [{'sentence_index': 1
                                                           'question unnecessary data requests can reduce risk over '
                                                           'time.',
                                            'structure': 'gerund subject + parallel verbs + modal meaning'}]}
+
+DEMO_SENTENCE_ANALYSIS_SPECS = {**DEMO_SENTENCE_ANALYSIS_SPECS, **LONG_FORM_SENTENCE_ANALYSIS_SPECS}
 
 DEMO_QUIZ_BANK = {'How Sleep Shapes Memory': [{'stem': 'What process does sleep help strengthen according to the article?',
                               'options': ['Memory consolidation',
@@ -984,6 +994,8 @@ DEMO_QUIZ_BANK = {'How Sleep Shapes Memory': [{'stem': 'What process does sleep 
                                                        'Deleting every app immediately'],
                                            'answer': 'Reviewing permissions and questioning unnecessary requests'}]}
 
+DEMO_QUIZ_BANK = {**DEMO_QUIZ_BANK, **LONG_FORM_QUIZ_BANK}
+
 DEMO_WORD_SPECS = [
     {'lemma': 'consolidate', 'phonetic': '\u006b\u0259n\u02c8s\u0251\u02d0l\u026ade\u026at', 'pos': 'vt.', 'meaning_cn': '\u5de9\u56fa'},
     {'lemma': 'equity', 'phonetic': '\u02c8ekw\u026ati', 'pos': 'n.', 'meaning_cn': '\u516c\u5e73'},
@@ -1067,9 +1079,14 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
         ).all()
         paragraph_by_index = {paragraph.paragraph_index: paragraph for paragraph in existing_paragraphs}
         desired_indices = set()
+        paragraph_translations = DEMO_PARAGRAPH_TRANSLATION_BANK.get(spec['title'], [])
 
         for paragraph_index, text in enumerate(spec['paragraphs'], start=1):
             desired_indices.add(paragraph_index)
+            translation = None
+            if paragraph_index <= len(paragraph_translations):
+                normalized_translation = paragraph_translations[paragraph_index - 1].strip()
+                translation = normalized_translation or None
             paragraph = paragraph_by_index.get(paragraph_index)
             if paragraph is None:
                 db.add(
@@ -1077,10 +1094,12 @@ def _upsert_demo_articles(db: Session) -> dict[str, Article]:
                         article_id=article.id,
                         paragraph_index=paragraph_index,
                         text=text,
+                        translation=translation,
                     )
                 )
             else:
                 paragraph.text = text
+                paragraph.translation = translation
 
         for paragraph in existing_paragraphs:
             if paragraph.paragraph_index not in desired_indices:

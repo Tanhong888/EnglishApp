@@ -26,6 +26,7 @@ class AdminArticleCreateRequest(BaseModel):
     reading_minutes: int = Field(ge=1)
     is_published: bool = False
     paragraphs: list[str] = Field(min_length=1)
+    paragraph_translations: list[str] | None = None
     summary: str | None = None
     source_url: str | None = None
 
@@ -37,6 +38,7 @@ class AdminArticleUpdateRequest(BaseModel):
     topic: str | None = None
     reading_minutes: int | None = Field(default=None, ge=1)
     paragraphs: list[str] | None = None
+    paragraph_translations: list[str] | None = None
     summary: str | None = None
     source_url: str | None = None
 
@@ -92,18 +94,36 @@ def _paragraphs_for_article(db: Session, article_id: int) -> list[ArticleParagra
     ).all()
 
 
-def _replace_paragraphs(db: Session, article: Article, paragraphs: list[str]) -> None:
+def _replace_paragraphs(
+    db: Session,
+    article: Article,
+    paragraphs: list[str],
+    paragraph_translations: list[str] | None = None,
+) -> None:
     existing = _paragraphs_for_article(db, article.id)
     by_index = {item.paragraph_index: item for item in existing}
     desired = set()
 
     for index, text in enumerate(paragraphs, start=1):
         desired.add(index)
+        translation = None
+        if paragraph_translations is not None and index <= len(paragraph_translations):
+            normalized_translation = paragraph_translations[index - 1].strip()
+            translation = normalized_translation or None
         paragraph = by_index.get(index)
         if paragraph is None:
-            db.add(ArticleParagraph(article_id=article.id, paragraph_index=index, text=text))
+            db.add(
+                ArticleParagraph(
+                    article_id=article.id,
+                    paragraph_index=index,
+                    text=text,
+                    translation=translation,
+                )
+            )
         else:
             paragraph.text = text
+            if paragraph_translations is not None:
+                paragraph.translation = translation
 
     for paragraph in existing:
         if paragraph.paragraph_index not in desired:
@@ -257,12 +277,22 @@ def admin_article_detail(article_id: int, _: User = Depends(require_admin_user),
     if article is None:
         raise HTTPException(status_code=404, detail='article not found')
     data = _serialize_admin_article(db, article)
-    data['paragraphs'] = [{'index': p.paragraph_index, 'text': p.text} for p in _paragraphs_for_article(db, article_id)]
+    data['paragraphs'] = [
+        {
+            'index': p.paragraph_index,
+            'text': p.text,
+            'translation': p.translation,
+        }
+        for p in _paragraphs_for_article(db, article_id)
+    ]
     return success(data)
 
 
 @router.post('/articles')
 def create_admin_article(payload: AdminArticleCreateRequest, _: User = Depends(require_admin_user), db: Session = Depends(get_db)) -> dict:
+    if payload.paragraph_translations is not None and payload.paragraph_translations and len(payload.paragraph_translations) != len(payload.paragraphs):
+        raise HTTPException(status_code=400, detail='paragraph_translations must match paragraphs length')
+
     article = Article(
         title=payload.title,
         stage_tag=payload.stage_tag,
@@ -277,7 +307,7 @@ def create_admin_article(payload: AdminArticleCreateRequest, _: User = Depends(r
     )
     db.add(article)
     db.flush()
-    _replace_paragraphs(db, article, payload.paragraphs)
+    _replace_paragraphs(db, article, payload.paragraphs, payload.paragraph_translations)
     if article.summary is None:
         article.summary = summarize_paragraphs(payload.paragraphs)
     _sync_article_snapshot_and_source(db, article, payload.paragraphs, source_type='manual')
@@ -301,11 +331,17 @@ def update_admin_article(
 
     update_data = payload.model_dump(exclude_unset=True)
     paragraphs = update_data.pop('paragraphs', None)
+    paragraph_translations = update_data.pop('paragraph_translations', None)
     for key, value in update_data.items():
         setattr(article, key, value)
 
+    if paragraphs is None and paragraph_translations is not None:
+        raise HTTPException(status_code=400, detail='paragraphs required when paragraph_translations are provided')
+    if paragraphs is not None and paragraph_translations is not None and paragraph_translations and len(paragraph_translations) != len(paragraphs):
+        raise HTTPException(status_code=400, detail='paragraph_translations must match paragraphs length')
+
     if paragraphs is not None:
-        _replace_paragraphs(db, article, paragraphs)
+        _replace_paragraphs(db, article, paragraphs, paragraph_translations)
     paragraph_texts = [item.text for item in _paragraphs_for_article(db, article.id)]
     if payload.summary is None and paragraphs is not None:
         article.summary = summarize_paragraphs(paragraph_texts)

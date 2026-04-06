@@ -30,6 +30,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
   final TextEditingController _sourceUrlController = TextEditingController();
   final TextEditingController _readingMinutesController = TextEditingController(text: '6');
   final TextEditingController _paragraphsController = TextEditingController();
+  final TextEditingController _paragraphTranslationsController = TextEditingController(text: '[]');
   final TextEditingController _analysesController = TextEditingController(text: '[]');
   final TextEditingController _quizController = TextEditingController(text: '[]');
 
@@ -65,6 +66,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
     _sourceUrlController.dispose();
     _readingMinutesController.dispose();
     _paragraphsController.dispose();
+    _paragraphTranslationsController.dispose();
     _analysesController.dispose();
     _quizController.dispose();
     super.dispose();
@@ -93,6 +95,9 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
       final audio = (audioResponse['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
 
       final paragraphs = (article['paragraphs'] as List?)?.cast<Map>() ?? const <Map>[];
+      final paragraphTranslationItems = paragraphs
+          .map((item) => item.cast<String, dynamic>()['translation']?.toString() ?? '')
+          .toList();
       final analysisItems = (analyses['items'] as List?)?.cast<Map>() ?? const <Map>[];
       final quizItems = (quiz['questions'] as List?)?.cast<Map>() ?? const <Map>[];
 
@@ -110,6 +115,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
             .map((item) => item.cast<String, dynamic>()['text']?.toString() ?? '')
             .where((text) => text.isNotEmpty)
             .join('\n\n');
+        _paragraphTranslationsController.text = _encoder.convert(paragraphTranslationItems);
         _stage = article['stage']?.toString() ?? 'cet4';
         _level = (article['level'] as num?)?.toInt() ?? 1;
         _isPublished = article['is_published'] as bool? ?? false;
@@ -144,12 +150,37 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         .toList();
   }
 
+  List<String> _parseParagraphTranslations() {
+    final raw = _paragraphTranslationsController.text.trim();
+    if (raw.isEmpty) {
+      return const <String>[];
+    }
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      throw const FormatException('\u6bb5\u843d\u4e2d\u8bd1\u5fc5\u987b\u662f JSON \u6570\u7ec4');
+    }
+
+    return decoded.map((item) => item?.toString().trim() ?? '').toList();
+  }
+
   Future<void> _saveArticle() async {
     final title = _titleController.text.trim();
     final topic = _topicController.text.trim();
     final paragraphs = _parseParagraphs();
+    List<String> paragraphTranslations;
+    try {
+      paragraphTranslations = _parseParagraphTranslations();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('\u6bb5\u843d\u4e2d\u8bd1\u89e3\u6790\u5931\u8d25\uff1a$e')));
+      return;
+    }
     if (title.isEmpty || topic.isEmpty || paragraphs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标题、主题和正文段落不能为空')));
+      return;
+    }
+    if (paragraphTranslations.isNotEmpty && paragraphTranslations.length != paragraphs.length) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('\u6bb5\u843d\u4e2d\u8bd1\u6570\u91cf\u9700\u8981\u4e0e\u6b63\u6587\u6bb5\u843d\u6570\u91cf\u4e00\u81f4')));
       return;
     }
 
@@ -168,6 +199,7 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
         'source_url': _sourceUrlController.text.trim(),
         'reading_minutes': int.tryParse(_readingMinutesController.text.trim()) ?? 6,
         'paragraphs': paragraphs,
+        'paragraph_translations': paragraphTranslations,
       };
 
       Map<String, dynamic> response;
@@ -624,6 +656,15 @@ class _AdminArticleEditorPageState extends ConsumerState<AdminArticleEditorPage>
                         _buildHeaderCard(),
                         const SizedBox(height: AppSpace.lg),
                         _buildAudioCard(),
+                        const SizedBox(height: AppSpace.lg),
+                        _buildJsonCard(
+                          title: '\u6bb5\u843d\u4e2d\u8bd1',
+                          description: '\u8fd9\u91cc\u7ef4\u62a4\u6574\u7bc7\u6587\u7ae0\u7684\u6bb5\u843d\u4e2d\u6587\u7ffb\u8bd1\uff0c\u987a\u5e8f\u9700\u8981\u548c\u6b63\u6587\u6bb5\u843d\u4e00\u4e00\u5bf9\u5e94\u3002',
+                          helper: 'JSON \u5b57\u7b26\u4e32\u6570\u7ec4\uff0c\u4f8b\u5982 ["\u7b2c\u4e00\u6bb5\u4e2d\u8bd1", "\u7b2c\u4e8c\u6bb5\u4e2d\u8bd1"]\u3002\u53ef\u4ee5\u7559\u7a7a\u5b57\u7b26\u4e32\u4fdd\u7559\u539f\u6587\u6a21\u5f0f\u3002',
+                          controller: _paragraphTranslationsController,
+                          saving: _savingArticle,
+                          onSave: _savingArticle ? null : _saveArticle,
+                        ),
                         const SizedBox(height: AppSpace.lg),
                         _buildJsonCard(
                           title: '句子解析',

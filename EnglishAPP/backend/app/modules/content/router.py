@@ -111,11 +111,32 @@ def get_article(article_id: int, db: Session = Depends(get_db)) -> dict:
         .where(ArticleParagraph.article_id == article_id)
         .order_by(ArticleParagraph.paragraph_index.asc(), ArticleParagraph.id.asc())
     ).all()
+    paragraph_items = [
+        {
+            'index': paragraph.paragraph_index,
+            'text': paragraph.text,
+            'translation': paragraph.translation,
+        }
+        for paragraph in paragraphs
+    ]
+    translated_items = [item for item in paragraph_items if item['translation']]
+    translation_status = (
+        'unavailable'
+        if not paragraph_items
+        else 'complete'
+        if len(translated_items) == len(paragraph_items)
+        else 'partial'
+    )
 
     return success(
         {
             **_serialize_article(article),
-            'paragraphs': [{'index': paragraph.paragraph_index, 'text': paragraph.text} for paragraph in paragraphs],
+            'content_text': '\n\n'.join(item['text'] for item in paragraph_items),
+            'content_translation': '\n\n'.join(item['translation'] for item in translated_items)
+            if translated_items
+            else None,
+            'translation_status': translation_status,
+            'paragraphs': paragraph_items,
         }
     )
 

@@ -31,29 +31,75 @@ class ArticleSummaryCard extends StatelessWidget {
 
     return AppSectionCard(
       onTap: onTap,
+      padding: const EdgeInsets.all(AppSpace.lg),
+      gradient: LinearGradient(
+        colors: <Color>[
+          AppColors.surface,
+          AppColors.surfaceMuted.withValues(alpha: 0.96),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.titleMedium,
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.brandSoft,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: const Icon(
+                  Icons.menu_book_rounded,
+                  color: AppColors.brandStrong,
                 ),
               ),
-              const SizedBox(width: AppSpace.sm),
-              AppStatusBadge(label: badgeLabel, tone: AppStatusTone.brand),
+              const SizedBox(width: AppSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppStatusBadge(label: badgeLabel, tone: AppStatusTone.brand),
+                    const SizedBox(height: AppSpace.sm),
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: AppSpace.xs),
+                    Text(
+                      metadata,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onTap != null) ...[
+                const SizedBox(width: AppSpace.sm),
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_outward_rounded,
+                    size: 18,
+                    color: AppColors.brandStrong,
+                  ),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: AppSpace.sm),
-          Text(
-            metadata,
-            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
           if (summary != null && summary!.isNotEmpty) ...[
-            const SizedBox(height: AppSpace.sm),
+            const SizedBox(height: AppSpace.md),
             Text(
               summary!,
               maxLines: 3,
@@ -61,8 +107,15 @@ class ArticleSummaryCard extends StatelessWidget {
               style: theme.textTheme.bodyMedium,
             ),
           ],
+          const SizedBox(height: AppSpace.md),
+          Text(
+            progress == null
+                ? '点击卡片进入阅读，开始今天的桌面学习。'
+                : (progressLabel ?? '阅读进度 ${(progressPercent ?? 0).toStringAsFixed(0)}%'),
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
           if (progress != null) ...[
-            const SizedBox(height: AppSpace.md),
+            const SizedBox(height: AppSpace.sm),
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.pill),
               child: LinearProgressIndicator(
@@ -70,11 +123,6 @@ class ArticleSummaryCard extends StatelessWidget {
                 value: progress,
                 backgroundColor: AppColors.bgElevated,
               ),
-            ),
-            const SizedBox(height: AppSpace.xs),
-            Text(
-              progressLabel ?? '阅读进度 ${(progressPercent ?? 0).toStringAsFixed(0)}%',
-              style: theme.textTheme.bodySmall,
             ),
           ],
         ],

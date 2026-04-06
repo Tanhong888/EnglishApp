@@ -120,7 +120,7 @@ def test_articles_pagination_limit(client: TestClient) -> None:
 
 
 def test_articles_list_success(client: TestClient) -> None:
-    response = client.get('/api/v1/articles', params={'page': 1, 'size': 20, 'sort': 'recommended'})
+    response = client.get('/api/v1/articles', params={'page': 1, 'size': 50, 'sort': 'recommended'})
     assert response.status_code == 200
     payload = response.json()
     assert payload['code'] == 0
@@ -129,12 +129,12 @@ def test_articles_list_success(client: TestClient) -> None:
 
 
 def test_articles_seed_catalog_expanded(client: TestClient) -> None:
-    response = client.get('/api/v1/articles', params={'page': 1, 'size': 20, 'sort': 'recommended'})
+    response = client.get('/api/v1/articles', params={'page': 1, 'size': 50, 'sort': 'recommended'})
     assert response.status_code == 200
     data = response.json()['data']
     titles = {item['title'] for item in data['items']}
 
-    assert data['total'] >= 9
+    assert data['total'] >= 20
     assert 'Why Public Libraries Still Matter' in titles
     assert 'The Future of Battery Recycling' in titles
 

@@ -47,7 +47,11 @@ class AppEmptyState extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpace.xl),
       child: Column(
         children: [
-          Icon(icon, size: 28, color: theme.colorScheme.onSurfaceVariant),
+          _StateIconChip(
+            icon: icon,
+            color: theme.colorScheme.onSurfaceVariant,
+            backgroundColor: AppColors.surface,
+          ),
           const SizedBox(height: AppSpace.sm),
           Text(title, style: theme.textTheme.titleSmall, textAlign: TextAlign.center),
           if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -84,11 +88,15 @@ class AppErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AppSectionCard(
-      color: AppColors.surface,
+      color: AppColors.surfaceMuted,
       padding: const EdgeInsets.all(AppSpace.xl),
       child: Column(
         children: [
-          Icon(Icons.error_outline, size: 28, color: theme.colorScheme.error),
+          _StateIconChip(
+            icon: Icons.error_outline,
+            color: theme.colorScheme.error,
+            backgroundColor: AppColors.errorSoft,
+          ),
           const SizedBox(height: AppSpace.sm),
           Text(title, style: theme.textTheme.titleSmall, textAlign: TextAlign.center),
           const SizedBox(height: AppSpace.xs),
@@ -107,6 +115,31 @@ class AppErrorState extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _StateIconChip extends StatelessWidget {
+  const _StateIconChip({
+    required this.icon,
+    required this.color,
+    required this.backgroundColor,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Icon(icon, size: 24, color: color),
     );
   }
 }
