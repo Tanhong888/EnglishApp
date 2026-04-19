@@ -29,5 +29,16 @@ Desktop.ini
 
 # Local runtime artifacts
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite3
+*.log
+logs/
+runlogs/
+coverage/
+htmlcov/
+.coverage
 backend/.pytest_cache/
 backend/*.egg-info/
+backend/runlogs/
